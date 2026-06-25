@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input, Label } from '@/components/ui/input';
+import { useProfile } from '@/context/ProfileContext';
 
 // Box–Muller normal sample
 function randn() {
@@ -13,8 +14,9 @@ function randn() {
 
 export default function Dispersion() {
   const [carry, setCarry] = useState(160);
-  const [depthSD, setDepthSD] = useState(6);
-  const [offlineSD, setOfflineSD] = useState(7);
+  // Dispersion is the shared player profile — it flows into Expected Strokes and per-hole strategy.
+  const { profile, setProfile } = useProfile();
+  const { offlineSD, depthSD } = profile;
 
   const points = useMemo(() => {
     const pts: { x: number; y: number }[] = [];
@@ -42,11 +44,11 @@ export default function Dispersion() {
             </div>
             <div className="space-y-1.5">
               <Label>Depth spread ± (1σ, yd)</Label>
-              <Input type="number" value={depthSD} onChange={(e) => setDepthSD(+e.target.value || 0)} />
+              <Input type="number" value={depthSD} onChange={(e) => setProfile({ depthSD: +e.target.value || 0 })} />
             </div>
             <div className="space-y-1.5">
               <Label>Offline spread ± (1σ, yd)</Label>
-              <Input type="number" value={offlineSD} onChange={(e) => setOfflineSD(+e.target.value || 0)} />
+              <Input type="number" value={offlineSD} onChange={(e) => setProfile({ offlineSD: +e.target.value || 0 })} />
             </div>
             <div className="rounded-md border border-border bg-background p-3 text-sm">
               <div className="flex justify-between"><span className="text-muted-foreground">2σ width</span><span className="font-semibold">{ovalW} yd</span></div>

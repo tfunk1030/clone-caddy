@@ -4,6 +4,7 @@ import { Label } from '@/components/ui/input';
 import { GreenMap } from '@/components/GreenMap';
 import { optimizeAim, type GreenModel } from '@/lib/shotModel';
 import { ES_NOTE } from '@/lib/expectedStrokes';
+import { useProfile } from '@/context/ProfileContext';
 
 const PINS: Record<string, { x: number; y: number }> = {
   Center: { x: 0, y: 0 },
@@ -36,8 +37,11 @@ function Chips({ options, value, onChange }: { options: string[]; value: string;
 }
 
 export default function ExpectedStrokes() {
-  const [offlineSD, setOfflineSD] = useState(8);
-  const [depthSD, setDepthSD] = useState(7);
+  // Dispersion comes from the shared player profile (also set on the Dispersion page).
+  const { profile, setProfile } = useProfile();
+  const { offlineSD, depthSD } = profile;
+  const setOfflineSD = (v: number) => setProfile({ offlineSD: v });
+  const setDepthSD = (v: number) => setProfile({ depthSD: v });
   const [greenRadius, setGreenRadius] = useState(15);
   const [pin, setPin] = useState('Tucked Left');
   const [water, setWater] = useState('Left');

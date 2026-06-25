@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 
@@ -18,6 +18,12 @@ const SAMPLE = [
 
 export default function Rankings() {
   const [tour, setTour] = useState('PGA Tour');
+  // The selected tour drives the driving-distance baseline (SG categories are
+  // defined relative to each tour's average, so their baseline is 0).
+  const data = useMemo(
+    () => SAMPLE.map((r) => (r.skill === 'Driving Distance' ? { ...r, tour: TOURS[tour].driving } : r)),
+    [tour],
+  );
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-6">
       <div>
@@ -44,7 +50,7 @@ export default function Rankings() {
         <CardContent>
           <div className="h-[380px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={SAMPLE} margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+              <BarChart data={data} margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
                 <CartesianGrid stroke="var(--border)" vertical={false} />
                 <XAxis dataKey="skill" stroke="var(--muted-foreground)" tick={{ fontSize: 11 }} interval={0} angle={-12} dy={8} height={50} />
                 <YAxis stroke="var(--muted-foreground)" />
