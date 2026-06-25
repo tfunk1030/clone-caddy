@@ -28,7 +28,30 @@ export default function CourseNavigation() {
   const [selectedHole, setSelectedHole] = useState<Hole | null>(null);
   const { profile } = useProfile();
 
-  const strategy = useMemo(() => (selectedHole ? buildHoleModel(selectedHole, elements) : null), [selectedHole, elements]);
+  // Per-hole pin sheet (pin position relative to green center), persisted.
+  const [pinSheet, setPinSheet] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem('caddai.pinsheet') || '{}'); } catch { return {}; }
+  });
+  const holeKey = (h: Hole | null) => (h && active ? `${active.name.split(',')[0]}|${holes.indexOf(h)}` : '');
+  const pinPreset = pinSheet[holeKey(selectedHole)] || 'Center';
+  const setPin = (preset: string) => {
+    const key = holeKey(selectedHole);
+    setPinSheet((prev) => {
+      const next = { ...prev, [key]: preset };
+      try { localStorage.setItem('caddai.pinsheet', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+  const pinOffset = (() => {
+    const R = selectedHole?.green?.radiusYds || 14;
+    const f = 0.6 * R;
+    return { Center: { x: 0, y: 0 }, Front: { x: 0, y: -f }, Back: { x: 0, y: f }, Left: { x: -f, y: 0 }, Right: { x: f, y: 0 } }[pinPreset] || { x: 0, y: 0 };
+  })();
+
+  const strategy = useMemo(
+    () => (selectedHole ? buildHoleModel(selectedHole, elements, pinOffset) : null),
+    [selectedHole, elements, pinOffset.x, pinOffset.y],
+  );
   const opt = useMemo(
     () => (strategy ? optimizeAim(profile.offlineSD, profile.depthSD, strategy.model, 500) : null),
     [strategy, profile.offlineSD, profile.depthSD],
@@ -243,7 +266,18 @@ export default function CourseNavigation() {
                     <span key={o} title={o}>{o[0].toUpperCase()} {Math.round(opt.result.breakdown[o] * 100)}%</span>
                   ))}
                 </div>
-                <div className="pt-1 text-[11px] text-muted-foreground">Your σ {profile.offlineSD}/{profile.depthSD} yd · pin assumed center</div>
+                <div className="pt-1 text-[11px] text-muted-foreground">Your σ {profile.offlineSD}/{profile.depthSD} yd</div>
+              </div>
+            </div>
+            <div className="mt-3 border-t border-border pt-3">
+              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Pin sheet</div>
+              <div className="flex flex-wrap gap-1.5">
+                {['Front', 'Left', 'Center', 'Right', 'Back'].map((p) => (
+                  <button key={p} onClick={() => setPin(p)}
+                    className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+                      pinPreset === p ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:text-foreground'
+                    }`}>{p}</button>
+                ))}
               </div>
             </div>
           </div>

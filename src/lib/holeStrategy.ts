@@ -45,7 +45,9 @@ export type HoleStrategy = {
   heading: number;
 };
 
-export function buildHoleModel(hole: Hole, elements: El[]): HoleStrategy | null {
+// pinOffset is the pin's position relative to the green centroid, in the
+// approach frame (x = right, y = long), in yards. {0,0} = pin at centroid.
+export function buildHoleModel(hole: Hole, elements: El[], pinOffset = { x: 0, y: 0 }): HoleStrategy | null {
   if (!hole.green) return null;
   const green = { lat: hole.green.lat, lon: hole.green.lon };
   // Approach heading: from the start of the centerline toward the green.
@@ -72,25 +74,32 @@ export function buildHoleModel(hole: Hole, elements: El[]): HoleStrategy | null 
     if (!bunkerHit || Math.hypot(b.x, b.y) < Math.hypot(bunkerHit.x, bunkerHit.y)) bunkerHit = b;
   }
 
-  // Water side (lateral/water hazard near the green).
-  let water: GreenModel['water'] = null;
-  let waterSide: HoleStrategy['water'] = null;
+  // Closest greenside water hazard (kept in green-centroid frame for now).
+  let waterHit: { x: number; y: number; r: number } | null = null;
   for (const e of elements) {
     const g = e.tags?.golf;
     if (g !== 'water_hazard' && g !== 'lateral_water_hazard') continue;
     const w = near(e.geometry, 35);
     if (!w) continue;
+    if (!waterHit || Math.hypot(w.x, w.y) < Math.hypot(waterHit.x, waterHit.y)) waterHit = w;
+  }
+
+  // Shift everything from the green-centroid frame into the pin frame (pin at
+  // origin) by subtracting the pin offset.
+  const shift = (p: { x: number; y: number; r: number }) => ({ x: p.x - pinOffset.x, y: p.y - pinOffset.y, r: p.r });
+  let water: GreenModel['water'] = null;
+  let waterSide: HoleStrategy['water'] = null;
+  if (waterHit) {
+    const w = shift(waterHit);
     const horizontal = Math.abs(w.x) >= Math.abs(w.y);
     waterSide = horizontal ? (w.x > 0 ? 'R' : 'L') : w.y > 0 ? 'long' : 'short';
-    const line = Math.max(2, Math.abs(horizontal ? w.x : w.y) - w.r);
-    water = { side: waterSide, line };
-    break;
+    water = { side: waterSide, line: Math.max(2, Math.abs(horizontal ? w.x : w.y) - w.r) };
   }
 
   const model: GreenModel = {
     greenRadius: hole.green.radiusYds,
-    greenCenter: { x: 0, y: 0 }, // pin assumed at green centroid
-    bunker: bunkerHit,
+    greenCenter: { x: -pinOffset.x, y: -pinOffset.y }, // green centroid seen from the pin
+    bunker: bunkerHit ? shift(bunkerHit) : null,
     water,
     penaltyStrokes: 1,
   };
