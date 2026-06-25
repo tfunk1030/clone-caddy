@@ -1,8 +1,5 @@
 #!/usr/bin/env node
-// Lightweight project sanity check used by `npm run lint` and CI.
-// Verifies the app shell, the four tabs, and every dependency they reference
-// actually exist — the original repo shipped with broken ./dependencies paths,
-// so this guards against that regression.
+// Project sanity check for the React app + API (run by `npm run lint` and CI).
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,49 +7,32 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const errors = [];
 const ok = (m) => console.log(`  ✓ ${m}`);
+const mustExist = (rel) => existsSync(resolve(root, rel)) ? ok(rel) : errors.push(`Missing: ${rel}`);
 
-function mustExist(rel) {
-  if (existsSync(resolve(root, rel))) ok(rel);
-  else errors.push(`Missing file: ${rel}`);
-}
+console.log('CADD-AI structure check\n');
 
-console.log('AI Caddie structure check\n');
+[
+  'index.html', 'package.json', 'vite.config.ts', 'tailwind.config.js', 'vercel.json',
+  'src/main.tsx', 'src/App.tsx', 'src/index.css',
+  'src/context/AuthContext.tsx', 'src/components/layout/AppShell.tsx',
+  'src/lib/mapbox.ts', 'src/lib/supabase.ts', 'src/lib/overpass.ts',
+  'server/lib.js', 'server/index.js',
+].forEach(mustExist);
 
-['index.html', 'src/main.js', 'src/style.css', 'package.json', 'vite.config.js',
- 'server/index.js', 'server/lib.js', 'scripts/dev.mjs', 'vercel.json',
- 'api/health.js', 'api/geocode.js', 'api/weather.js', 'api/conditions.js', 'api/course.js'].forEach(mustExist);
+['Login', 'Dashboard', 'CourseNavigation', 'Dispersion', 'Conditions', 'Forecast', 'Rankings', 'Settings']
+  .forEach((p) => mustExist(`src/pages/${p}.tsx`));
 
-// API wiring: each Vercel function must exist, and the shell must call conditions.
-const mainJs = readFileSync(resolve(root, 'src/main.js'), 'utf8');
 for (const fn of ['health', 'geocode', 'weather', 'conditions', 'course']) {
   const p = resolve(root, 'api', `${fn}.js`);
-  if (existsSync(p) && readFileSync(p, 'utf8').includes('export default')) ok(`api/${fn}.js handler`);
+  if (existsSync(p) && readFileSync(p, 'utf8').includes('export default')) ok(`api/${fn}.js`);
   else errors.push(`api/${fn}.js missing or has no default export`);
 }
-if (mainJs.includes('/api/conditions')) ok('shell calls /api/conditions');
-else errors.push('shell does not call /api/conditions');
 
-const tabs = ['play_tab.html', 'prepare_tab.html', 'dispersion_tab.html', 'stats_tab.html'];
-tabs.forEach((t) => mustExist(`public/${t}`));
-
-// Resolve every ./dependencies/... reference inside the tabs.
-for (const tab of tabs) {
-  const p = resolve(root, 'public', tab);
-  if (!existsSync(p)) continue;
-  const html = readFileSync(p, 'utf8');
-  const refs = [...html.matchAll(/\.\/(dependencies\/[A-Za-z0-9_./-]+)/g)].map((m) => m[1]);
-  for (const ref of new Set(refs)) {
-    if (existsSync(resolve(root, 'public', ref))) ok(`${tab} -> ${ref}`);
-    else errors.push(`${tab} references missing ${ref}`);
-  }
-}
-
-// index.html must mount each tab.
-const index = readFileSync(resolve(root, 'index.html'), 'utf8');
-const main = readFileSync(resolve(root, 'src/main.js'), 'utf8');
-for (const t of tabs) {
-  if (main.includes(t)) ok(`shell wires ${t}`);
-  else errors.push(`shell does not reference ${t}`);
+// App wires each route.
+const app = readFileSync(resolve(root, 'src/App.tsx'), 'utf8');
+for (const r of ['course', 'dispersion', 'conditions', 'forecast', 'rankings', 'settings']) {
+  if (app.includes(`path="${r}"`)) ok(`route /${r}`);
+  else errors.push(`App.tsx missing route ${r}`);
 }
 
 console.log('');
