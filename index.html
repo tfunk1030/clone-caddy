@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b3d2e" />
+  <meta name="description" content="AI Caddie — golf shot planning, 3D course mapping, dispersion analysis and strokes-gained skill profiles." />
+  <title>AI Caddie</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%2316a34a'/%3E%3Ccircle cx='16' cy='16' r='9' fill='%23 effdf5'/%3E%3Ccircle cx='13' cy='13' r='1.4' fill='%2386efac'/%3E%3Ccircle cx='18' cy='14' r='1.4' fill='%2386efac'/%3E%3Ccircle cx='15' cy='18' r='1.4' fill='%2386efac'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar navigation -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">⛳</span>
+        <div class="brand-text">
+          <strong>AI Caddie</strong>
+          <small>Plan smarter golf</small>
+        </div>
+      </div>
+      <nav class="nav" aria-label="Primary">
+        <a class="nav-item" data-view="home" href="#home"><span class="ico">🏠</span><span>Home</span><kbd>1</kbd></a>
+        <a class="nav-item" data-view="play" href="#play"><span class="ico">🗺️</span><span>Play</span><kbd>2</kbd></a>
+        <a class="nav-item" data-view="prepare" href="#prepare"><span class="ico">🎯</span><span>Prepare</span><kbd>3</kbd></a>
+        <a class="nav-item" data-view="dispersion" href="#dispersion"><span class="ico">📈</span><span>Dispersion</span><kbd>4</kbd></a>
+        <a class="nav-item" data-view="stats" href="#stats"><span class="ico">📊</span><span>Stats</span><kbd>5</kbd></a>
+      </nav>
+      <div class="sidebar-foot">
+        <button class="ghost-btn" id="settingsBtn" type="button">⚙️ Settings</button>
+        <a class="ghost-btn" href="https://github.com/sonnejack/AI_Caddie" target="_blank" rel="noopener">★ Source</a>
+      </div>
+    </aside>
+
+    <!-- Main column -->
+    <div class="main">
+      <header class="topbar">
+        <button class="icon-btn" id="menuBtn" type="button" aria-label="Toggle navigation">☰</button>
+        <div class="topbar-title" id="viewTitle">Home</div>
+        <div class="course-chip" id="courseChip" title="Currently selected course">
+          <span class="dot"></span>
+          <span id="courseChipName">No course selected</span>
+        </div>
+      </header>
+
+      <main class="content" id="content">
+        <!-- Home / dashboard -->
+        <section class="view view-home" id="view-home">
+          <div class="hero">
+            <h1>Your AI golf caddie</h1>
+            <p>Pick a course, map it in 3D, plan shots around your real dispersion, and track strokes gained — all in one place.</p>
+            <div class="hero-actions">
+              <button class="primary-btn" data-go="play">Open Course Map →</button>
+              <button class="secondary-btn" data-go="dispersion">Analyze Dispersion</button>
+            </div>
+          </div>
+
+          <div class="cards">
+            <button class="card" data-go="play">
+              <div class="card-ico">🗺️</div>
+              <h3>Play</h3>
+              <p>3D course flyover with terrain, hazards and live dispersion overlays to find the smartest aim point.</p>
+            </button>
+            <button class="card" data-go="prepare">
+              <div class="card-ico">🎯</div>
+              <h3>Prepare</h3>
+              <p>Pre-round course study with short-game modifiers and lie-by-lie expected outcomes.</p>
+            </button>
+            <button class="card" data-go="dispersion">
+              <div class="card-ico">📈</div>
+              <h3>Dispersion</h3>
+              <p>Scatter your shots, fit a tight enclosing ellipse (MVEE), and quantify your shot pattern.</p>
+            </button>
+            <button class="card" data-go="stats">
+              <div class="card-ico">📊</div>
+              <h3>Stats</h3>
+              <p>Build player skill profiles with strokes-gained radar charts benchmarked against tour data.</p>
+            </button>
+          </div>
+
+          <div class="info-grid">
+            <div class="info-panel">
+              <h3>Currently selected course</h3>
+              <p class="big" id="homeCourseName">None yet</p>
+              <p class="muted">Choose a course in <a href="#play" data-go="play">Play</a> or <a href="#prepare" data-go="prepare">Prepare</a>. Your selection follows you across every tab.</p>
+            </div>
+            <div class="info-panel">
+              <h3>Tips</h3>
+              <ul class="tips">
+                <li>Press <kbd>1</kbd>–<kbd>5</kbd> to jump between tabs.</li>
+                <li>3D maps need a Cesium Ion token — add your own in <button class="link-btn" id="openSettingsLink">Settings</button> if the bundled one is rate-limited.</li>
+                <li>Course selection and player profiles are saved in your browser.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab frames mount here -->
+        <section class="view view-frame" id="view-play" hidden></section>
+        <section class="view view-frame" id="view-prepare" hidden></section>
+        <section class="view view-frame" id="view-dispersion" hidden></section>
+        <section class="view view-frame" id="view-stats" hidden></section>
+      </main>
+    </div>
+  </div>
+
+  <!-- Settings modal -->
+  <div class="modal-backdrop" id="settingsModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <h2 id="settingsTitle">Settings</h2>
+      <label for="ionToken">Cesium Ion access token</label>
+      <p class="muted small">Used for 3D terrain & imagery in the Play and Prepare maps. Leave blank to use the bundled default. Get a free token at <a href="https://ion.cesium.com/tokens" target="_blank" rel="noopener">ion.cesium.com</a>.</p>
+      <input type="text" id="ionToken" placeholder="eyJhbGci..." autocomplete="off" spellcheck="false" />
+      <div class="modal-actions">
+        <button class="secondary-btn" id="settingsCancel" type="button">Cancel</button>
+        <button class="primary-btn" id="settingsSave" type="button">Save</button>
+      </div>
+      <p class="muted small" id="settingsHint"></p>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "ai-caddie",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI Caddie — a golf shot-planning and performance web app: 3D course mapping, dispersion analysis, strokes-gained skill profiles, and short-game preparation.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173",
+    "serve": "vite preview --host --port 4173",
+    "lint": "node scripts/check-structure.mjs"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}

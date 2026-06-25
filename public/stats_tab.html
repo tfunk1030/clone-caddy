@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Player Skill Profiles (Radar + Ratings)</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #121922;
+    --ink: #e8eef6;
+    --muted: #9bb0c3;
+    --grid: #2a3849;
+    --accent: #6ec1ff;
+    --accent2: #ffc36e;
+    --good: #7bd389;
+    --bad: #ff7b7b;
+    --neutral-ring: #666666;  /* pick a contrasting color */
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans"; }
+  h1 { margin: 0 0 8px; font-size: 20px; font-weight: 700; }
+  .wrap { display: grid; grid-template-columns: 340px 1fr; gap: 16px; max-width: 1200px; margin: 0 auto; }
+  .card { background: var(--panel); border: 1px solid #1c2633; border-radius: 12px; padding: 12px; }
+  .section-title { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 4px 0 8px; }
+  label { font-size: 13px; color: var(--muted); display: block; margin: 8px 0 4px; }
+  input[type="text"], input[type="number"], select {
+    width: 100%; padding: 8px 10px; background: #0f1520; color: var(--ink);
+    border: 1px solid #1d2836; border-radius: 8px; outline: none;
+  }
+  /* Standard + Firefox */
+  input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+  /* WebKit/Blink */
+  input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button {
+    appearance: none; -webkit-appearance: none; margin: 0;
+  }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .btn { background: #1b2a3a; color: var(--ink); border: 1px solid #2a3d52; border-radius: 10px;
+    padding: 8px 10px; cursor: pointer; font-weight: 600; }
+  .btn:hover { filter: brightness(1.1); }
+  .danger { border-color: #523a3a; background: #2a1b1b; }
+  .flex, .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .list { display: grid; gap: 6px; max-height: 260px; overflow: auto; padding-right: 4px; }
+  .pill { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px;
+    padding: 8px 10px; border: 1px solid #223044; border-radius: 10px; background: #0f1520; }
+  .pill input[type="checkbox"]{ width: 18px; height: 18px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .skills { display: grid; gap: 6px; }
+  .skill-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto; /* name | raw | SD */
+    gap: 8px;
+    padding: 6px 8px;
+    background: #0f1520;
+    border-radius: 8px;
+  }
+  .skill-name { color: var(--muted); }
+  .skill-value { font-variant-numeric: tabular-nums; }
+  .positive { color: var(--good); } .negative { color: var(--bad); }
+  .grid-note { color: var(--muted); font-size: 12px; }
+  .toggle { display: inline-flex; gap: 8px; align-items: center; margin: 6px 0 12px; }
+  .toggle input { margin-right: 4px; }
+  .radar-shell { width: min(560px, 100%); aspect-ratio: 1; }
+  svg { display: block; width: 100%; height: 100%; }
+  .tooltip { position: fixed; pointer-events: none; transform: translate(-50%, calc(-100% - 12px));
+    background: #0c121a; border: 1px solid #2a3849; color: var(--ink); font-size: 12px;
+    padding: 6px 8px; border-radius: 8px; display: none; z-index: 20; white-space: nowrap; }
+  .small { font-size: 12px; color: var(--muted); }
+  .percentiles { display: grid; gap: 8px; margin-top: 10px; }
+  .pbar { display:grid; grid-template-columns: 140px 1fr 42px; gap:8px; align-items:center; }
+  .pbar-track { height: 8px; background:#1b2736; border-radius: 999px; overflow: hidden; }
+  .pbar-fill { height: 100%; width: 0; background: var(--accent2); }
+  @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+
+</style>
+</head>
+<body>
+  <h1>Player Skill Profiles</h1>
+  <div class="wrap">
+    <!-- Sidebar: Add / Manage -->
+    <div class="card">
+      <div class="section-title">Add Player</div>
+
+      <div class="toggle">
+        <label><input type="radio" name="mode" value="sd"> Enter SDs</label>
+        <label><input type="radio" name="mode" value="raw" checked> Enter Raw (auto-convert to SD)</label>
+      </div>
+
+      <label>Tour</label>
+      <select id="tour">
+        <option value="PGA" selected>PGA Tour</option>
+        <option value="LPGA">LPGA Tour</option>
+      </select>
+
+      <label>Player Name</label>
+      <input id="name" type="text" placeholder="e.g., Nelly Korda">
+
+      <!-- SD INPUTS -->
+      <div id="sd-fields" style="display:none">
+        <label>Driving Distance (SD)</label><input id="dd" type="number" step="0.1" placeholder="e.g., 1.0">
+        <label>Driving Accuracy (SD)</label><input id="da" type="number" step="0.1" placeholder="e.g., -0.2">
+        <label>SG: Approach (SD)</label><input id="app" type="number" step="0.1" placeholder="e.g., 0.6">
+        <label>SG: Around-the-Green (SD)</label><input id="arg" type="number" step="0.1" placeholder="e.g., 0.1">
+        <label>SG: Putting (SD)</label><input id="putt" type="number" step="0.1" placeholder="e.g., 0.4">
+      </div>
+
+      <!-- RAW INPUTS (actual values; means/SDs come from selected tour) -->
+      <div id="raw-fields">
+        <div class="row">
+          <div>
+            <label>Driving Distance (yards)</label><input id="ddRaw" type="number" step="0.1" placeholder="e.g., 301">
+          </div>
+          <div>
+            <label class="small">PGA mean 296 (SD 8.1) / LPGA mean 256 (SD 10.64)</label>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Driving Accuracy (%)</label><input id="daRaw" type="number" step="0.1" placeholder="e.g., 63.0">
+          </div>
+          <div>
+            <label class="small">PGA mean 59.5 (SD 4.7) / LPGA mean 68.8 (SD 5.72)</label>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>SG: Approach (strokes/round)</label><input id="appRaw" type="number" step="0.01" placeholder="e.g., 0.25">
+          </div>
+          <div>
+            <label class="small">SD 0.37</label>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>SG: Around-Green (strokes/round)</label><input id="argRaw" type="number" step="0.01" placeholder="e.g., 0.08">
+          </div>
+          <div>
+            <label class="small">SD 0.16</label>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>SG: Putting (strokes/round)</label><input id="puttRaw" type="number" step="0.01" placeholder="e.g., 0.18">
+          </div>
+          <div>
+            <label class="small">SD 0.33 (i corrected this -- inspect others)</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <button class="btn" id="addBtn">Add / Update Player</button>
+        <button class="btn danger" id="clearBtn" title="Clear all saved players">Clear All</button>
+      </div>
+
+      <label style="margin-top:12px;">Quick Add (single field)</label>
+      <input id="quick" type="text" placeholder="Name | 305, 62, 0.3, 0.1, 0.2 | PGA">
+      <div class="flex">
+        <button class="btn" id="quickBtn">Add from Quick Field</button>
+        <span class="small">Format: <code>Name | DD(yds), Acc(%), APP, ARG, PUTT | PGA/LPGA</code></span>
+      </div>
+
+      <div class="section-title" style="margin-top:14px;">Saved Players</div>
+      <div id="list" class="list"></div>
+    </div>
+
+    <!-- Main: Radar + Ratings -->
+    <div class="card">
+      <div class="section-title">Skill Profile</div>
+      <div class="grid-note">Rings show −5 … +5 SD (0 SD is the middle ring). Toggle players to compare.</div>
+      <div class="radar-shell"><div id="radar-container"></div></div>
+      <div class="section-title" style="margin-top:12px;">Ratings</div>
+      <div id="ratings" class="skills"></div>
+    </div>
+  </div>
+
+  <div id="tooltip" class="tooltip"></div>
+
+<script>
+/* ========= Config: Tour means & SDs ========= */
+const TOURS = {
+  PGA: {
+    label: "PGA",
+    ddMean: 296, ddSD: 8.1,       // yards
+    daMean: 59.5, daSD: 4.7,      // %-points
+    appSD: 0.37, argSD: 0.16, puttSD: 0.334 // strokes/round
+  },
+  LPGA: {
+    label: "LPGA",
+    ddMean: 256, ddSD: 10.64,     // yards
+    daMean: 68.8, daSD: 5.72,     // %-points
+    appSD: 0.37, argSD: 0.16, puttSD: 0.24 // (override if you have LPGA-specific values)
+  }
+};
+
+const STORAGE_KEY = "dg_profiles_v3";
+const AXES = [
+  { key: "drivingDistanceSD", label: "Driving Distance", short: "DD" },
+  { key: "drivingAccuracySD", label: "Driving Accuracy", short: "DA" },
+  { key: "approachSD",       label: "SG: Approach",      short: "APP" },
+  { key: "aroundGreenSD",    label: "SG: Around-Green",  short: "ARG" },
+  { key: "puttingSD",        label: "SG: Putting",       short: "PUTT" },
+];
+const MAX_SD = 5; // −5 center, 0 mid, +5 outer
+const COLORS = ["#6ec1ff", "#ffc36e", "#7bd389", "#ff7b7b", "#c49cff", "#f6a6ff", "#a3ffb4"];
+
+/* ========= Data & Storage ========= */
+function loadProfiles(){ try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; } }
+function saveProfiles(list){ localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); }
+let profiles = loadProfiles();
+
+/* ========= UI Refs ========= */
+const modeRadios = [...document.querySelectorAll('input[name="mode"]')];
+const sdFields = document.getElementById('sd-fields');
+const rawFields = document.getElementById('raw-fields');
+const tourEl = document.getElementById('tour');
+
+const nameEl = document.getElementById('name');
+const ddEl = document.getElementById('dd');
+const daEl = document.getElementById('da');
+const appEl = document.getElementById('app');
+const argEl = document.getElementById('arg');
+const puttEl = document.getElementById('putt');
+
+const ddRawEl = document.getElementById('ddRaw');
+const daRawEl = document.getElementById('daRaw');
+const appRawEl = document.getElementById('appRaw');
+const argRawEl = document.getElementById('argRaw');
+const puttRawEl = document.getElementById('puttRaw');
+
+const addBtn = document.getElementById('addBtn');
+const clearBtn = document.getElementById('clearBtn');
+const quickEl = document.getElementById('quick');
+const quickBtn = document.getElementById('quickBtn');
+
+const listEl = document.getElementById('list');
+const radarContainer = document.getElementById('radar-container');
+const ratingsEl = document.getElementById('ratings');
+const tooltip = document.getElementById('tooltip');
+
+/* ========= Mode Toggle ========= */
+modeRadios.forEach(r => r.addEventListener('change', () => {
+  const mode = getMode();
+  sdFields.style.display = mode === 'sd' ? '' : 'none';
+  rawFields.style.display = mode === 'raw' ? '' : 'none';
+}));
+function getMode(){ return modeRadios.find(r => r.checked).value; }
+
+/* ========= Helpers ========= */
+function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
+function slug(s){ return s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,''); }
+
+function rawToSDs(raw, tourKey){
+  const t = TOURS[tourKey] || TOURS.PGA;
+  const ddSD = (raw.dd - t.ddMean) / t.ddSD;
+  const daSD = (raw.da - t.daMean) / t.daSD;
+  const appSD = raw.app / t.appSD; // SGs are already relative to 0 mean
+  const argSD = raw.arg / t.argSD;
+  const puttSD = raw.putt / t.puttSD;
+  return { ddSD, daSD, appSD, argSD, puttSD };
+}
+
+function buildProfileFromForm(){
+  const name = nameEl.value.trim();
+  if (!name) { alert("Enter a player name."); return null; }
+  const tour = tourEl.value || "PGA";
+
+  let ddSD, daSD, appSD, argSD, puttSD;
+  if (getMode()==='sd'){
+    ddSD = parseFloat(ddEl.value||0);
+    daSD = parseFloat(daEl.value||0);
+    appSD= parseFloat(appEl.value||0);
+    argSD= parseFloat(argEl.value||0);
+    puttSD=parseFloat(puttEl.value||0);
+  } else {
+    const raw = {
+      dd: parseFloat(ddRawEl.value||0),
+      da: parseFloat(daRawEl.value||0),
+      app: parseFloat(appRawEl.value||0),
+      arg: parseFloat(argRawEl.value||0),
+      putt: parseFloat(puttRawEl.value||0),
+    };
+    const z = rawToSDs(raw, tour);
+    ddSD = z.ddSD; daSD = z.daSD; appSD = z.appSD; argSD = z.argSD; puttSD = z.puttSD;
+  }
+
+  return {
+    id: slug(name),
+    name,
+    tour,
+    drivingDistanceSD: ddSD,
+    drivingAccuracySD: daSD,
+    approachSD: appSD,
+    aroundGreenSD: argSD,
+    puttingSD: puttSD,
+    show: true,
+    // keep raw (when provided) for tooltips
+    raw: {
+      dd: parseFloat(ddRawEl?.value ?? ""),
+      da: parseFloat(daRawEl?.value ?? ""),
+      app: parseFloat(appRawEl?.value ?? ""),
+      arg: parseFloat(argRawEl?.value ?? ""),
+      putt: parseFloat(puttRawEl?.value ?? ""),
+    }
+  };
+}
+
+function upsertProfile(p){
+  const idx = profiles.findIndex(x => x.id === p.id);
+  if (idx >= 0) profiles[idx] = p; else profiles.push(p);
+  saveProfiles(profiles); renderList(); render();
+}
+function removeProfile(id){ profiles = profiles.filter(p => p.id !== id); saveProfiles(profiles); renderList(); render(); }
+function toggleShow(id, show){ const p = profiles.find(x => x.id===id); if (!p) return; p.show = !!show; saveProfiles(profiles); render(); }
+
+/* ========= Quick Add Parsing (raw) =========
+   Format: Name | DD(yds), Acc(%), APP, ARG, PUTT | PGA/LPGA
+*/
+function parseQuick(line){
+  const parts = line.split("|").map(s => s.trim());
+  if (parts.length < 2) return null;
+  const name = parts[0];
+  const nums = parts[1].split(",").map(s => parseFloat(s.trim()));
+  if (nums.length !== 5 || nums.some(n => Number.isNaN(n))) return null;
+  const tour = (parts[2]?.toUpperCase() === "LPGA") ? "LPGA" : "PGA";
+  const raw = { dd: nums[0], da: nums[1], app: nums[2], arg: nums[3], putt: nums[4] };
+  const z = rawToSDs(raw, tour);
+  return {
+    id: slug(name), name, tour,
+    drivingDistanceSD: z.ddSD, drivingAccuracySD: z.daSD, approachSD: z.appSD, aroundGreenSD: z.argSD, puttingSD: z.puttSD,
+    show: true, raw
+  };
+}
+
+/* ========= List + Ratings ========= */
+function renderList(){
+  listEl.innerHTML = "";
+  if (profiles.length === 0){ listEl.innerHTML = `<div class="small">No players yet. Add one above.</div>`; return; }
+  profiles.forEach((p, i) => {
+    const color = COLORS[i % COLORS.length];
+    const row = document.createElement('div');
+    row.className = "pill";
+    row.innerHTML = `
+      <input type="checkbox" ${p.show ? "checked":""} title="Show on radar">
+      <div>
+        <div><span class="legend-dot" style="background:${color}"></span> <strong>${p.name}</strong> <span class="small">(${p.tour})</span></div>
+        <div class="small">Total True SG: ${fmtSigned(totalTrue(p))} SD</div>
+      </div>
+      <div class="flex">
+        <button class="btn" data-edit="${p.id}">Edit</button>
+        <button class="btn danger" data-del="${p.id}">Delete</button>
+      </div>
+    `;
+    row.querySelector('input[type="checkbox"]').addEventListener('change', e => toggleShow(p.id, e.target.checked));
+    row.querySelector('[data-del]').addEventListener('click', () => removeProfile(p.id));
+    row.querySelector('[data-edit]').addEventListener('click', () => loadIntoForm(p));
+    listEl.appendChild(row);
+  });
+}
+
+function loadIntoForm(p){
+  (modeRadios.find(r => r.value==='raw')||{}).checked = true;
+  sdFields.style.display = "none"; rawFields.style.display = "";
+  tourEl.value = p.tour || "PGA";
+  nameEl.value = p.name;
+  // seed raw if we have it; otherwise leave blank
+  ddRawEl.value = p.raw?.dd ?? "";
+  daRawEl.value = p.raw?.da ?? "";
+  appRawEl.value= p.raw?.app ?? "";
+  argRawEl.value= p.raw?.arg ?? "";
+  puttRawEl.value= p.raw?.putt ?? "";
+}
+
+function totalTrue(p){
+  return (p.drivingDistanceSD + p.drivingAccuracySD + p.approachSD + p.aroundGreenSD + p.puttingSD);
+}
+function fmtSigned(n){ const s = (n>=0?"+":"") + n.toFixed(1); return s.replace("+0.0","+0.0").replace("-0.0","+0.0"); }
+
+function getTourCfg(tour){ return TOURS[tour] || TOURS.PGA; }
+
+function sdToRawForAxis(p, axKey){
+  const t = getTourCfg(p.tour);
+  switch (axKey) {
+    case "drivingDistanceSD": return t.ddMean + (p.drivingDistanceSD||0) * t.ddSD;       // yards
+    case "drivingAccuracySD": return t.daMean + (p.drivingAccuracySD||0) * t.daSD;       // percent points
+    case "approachSD":        return (p.approachSD||0)    * t.appSD;                      // strokes/rd
+    case "aroundGreenSD":     return (p.aroundGreenSD||0) * t.argSD;                      // strokes/rd
+    case "puttingSD":         return (p.puttingSD||0)     * t.puttSD;                     // strokes/rd
+    default: return 0;
+  }
+}
+
+function unitsFor(axKey){
+  if (axKey === "drivingDistanceSD") return "yds";
+  if (axKey === "drivingAccuracySD") return "%";
+  return "strokes";
+}
+
+
+/* ========= Ratings + Percentiles ========= */
+function renderRatings(){
+  const shown = profiles.filter(p => p.show);
+  ratingsEl.innerHTML = shown.length ? "" : `<div class="small">Toggle players in the list to see their ratings.</div>`;
+  shown.forEach(p => {
+    const total = totalTrue(p);
+    const block = document.createElement('div');
+    block.className = "card"; block.style.padding = "10px"; block.style.background = "#0f1520";
+    block.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <strong>${p.name}</strong>
+        <span class="${total>=0?'positive':'negative'}">Total True SG: ${fmtSigned(total)} SD</span>
+      </div>
+    `;
+
+    AXES.forEach(ax => {
+      const sd = p[ax.key] || 0;
+      const raw = sdToRawForAxis(p, ax.key);
+      const unit = unitsFor(ax.key);
+      const row = document.createElement('div');
+      row.className = "skill-row";
+      row.innerHTML = `
+        <div class="skill-name">${ax.label} <span class="small">(${p.tour})</span></div>
+        <div class="skill-value">${ax.key==='drivingAccuracySD' ? raw.toFixed(1) : (ax.key==='drivingDistanceSD' ? Math.round(raw) : raw.toFixed(2))} ${unit}</div>
+        <div class="skill-value ${sd>=0?'positive':'negative'}">${fmtSigned(sd)} SD</div>
+      `;
+      block.appendChild(row);
+    });
+
+    // Percentiles (from z-score)
+    const pctWrap = document.createElement('div');
+    pctWrap.className = "percentiles";
+    pctWrap.innerHTML = `<div class="small" style="margin-top:6px;">Percentile rank (z-score → percentile, 0–99)</div>`;
+    AXES.forEach(ax => {
+      const z = p[ax.key] || 0;
+      const pct = zToPercentile(z); // uses fixed function below
+      const row = document.createElement('div');
+      row.className = "pbar";
+      row.innerHTML = `
+        <div class="skill-name">${ax.label}</div>
+        <div class="pbar-track"><div class="pbar-fill" style="width:${pct}%"></div></div>
+        <div class="skill-value">${pct}</div>
+      `;
+      pctWrap.appendChild(row);
+    });
+    block.appendChild(pctWrap);
+    ratingsEl.appendChild(block);
+  });
+}
+
+/* ========= Radar (SVG) ========= */
+function render(){
+  const size = 520, padding = 48;
+  const cx = size/2, cy = size/2;
+  const rMax = (size/2) - padding;
+  const levels = [-5,-4,-3,-2,-1,0,1,2,3,4,5];
+
+  radarContainer.innerHTML = "";
+  const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
+  svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
+  svg.setAttribute("preserveAspectRatio","xMidYMid meet");
+  svg.style.width = "100%"; svg.style.height = "100%";
+
+  // rings: -5->0, 0->0.5*rMax, +5->rMax
+  const gGrid = svg.appendChild(svgEl("g",{class:"radar-grid"}));
+  levels.forEach(lvl => {
+    const r = ((lvl + MAX_SD) / (2 * MAX_SD)) * rMax;
+    const c = svgEl("circle", { cx, cy, r, fill: "none", stroke: "var(--grid)", "stroke-dasharray": "0" });
+    gGrid.appendChild(c);
+    if (lvl !== -5) {
+      const label = svgEl("text", { x: cx + r + 6, y: cy + 4, fill: "var(--muted)", "font-size": 11 }, `${lvl} SD`);
+      gGrid.appendChild(label);
+    }
+  });
+  // Bold neutral (0 SD) ring on top, once
+  const r0 = ((0 + MAX_SD) / (2 * MAX_SD)) * rMax;
+  gGrid.appendChild(svgEl("circle", {
+    cx, cy, r: r0, fill: "none", stroke: "var(--neutral-ring)",
+    "stroke-width": 2.5, "stroke-dasharray": "0", "pointer-events": "none"
+  }));
+
+  // axes
+  const gAxes = svg.appendChild(svgEl("g",{}));
+  const N = AXES.length;
+  AXES.forEach((ax, i) => {
+    const ang = (i / N) * Math.PI * 2 - Math.PI/2;
+    const x = cx + rMax * Math.cos(ang);
+    const y = cy + rMax * Math.sin(ang);
+    gAxes.appendChild(svgEl("line", { x1: cx, y1: cy, x2: x, y2: y, stroke: "var(--grid)" }));
+    const lx = cx + (rMax + 16) * Math.cos(ang);
+    const ly = cy + (rMax + 16) * Math.sin(ang);
+    gAxes.appendChild(svgEl("text", { x: lx, y: ly, fill: "var(--ink)", "font-size": 12, "text-anchor":"middle" }, ax.label));
+  });
+
+  // shapes
+  const shown = profiles.filter(p => p.show);
+  shown.forEach((p, idx) => {
+    const color = COLORS[idx % COLORS.length];
+    const pts = [];
+    AXES.forEach((ax, i) => {
+      const v = clamp(p[ax.key] || 0, -MAX_SD, MAX_SD);
+      const ang = (i / N) * Math.PI * 2 - Math.PI/2;
+      const radius = ((v + MAX_SD) / (2 * MAX_SD)) * rMax; // linear map −5..+5 to 0..rMax
+      const x = cx + radius * Math.cos(ang);
+      const y = cy + radius * Math.sin(ang);
+      pts.push([x,y, ax.label, v, ax.key, p.tour]);
+    });
+
+    const poly = svgEl("polygon", { points: pts.map(p => `${p[0]},${p[1]}`).join(" "), fill: hexToRgba(color, 0.22), stroke: color, "stroke-width": 2 });
+    svg.appendChild(poly);
+
+    pts.forEach(([x,y,label,v,key,tour]) => {
+      const dot = svgEl("circle", { cx:x, cy:y, r:4, fill: color, cursor: "default" });
+      dot.addEventListener('mousemove', (e) => {
+        tooltip.innerHTML = tooltipText(p, label, v, key, tour);
+        tooltip.style.left = e.clientX + "px"; tooltip.style.top  = e.clientY + "px"; tooltip.style.display = "block";
+      });
+      dot.addEventListener('mouseleave', () => { tooltip.style.display = "none"; });
+      svg.appendChild(dot);
+    });
+  });
+
+  radarContainer.appendChild(svg);
+  renderRatings();
+}
+
+function tooltipText(p, label, v, key, tour){
+  const unit = unitsFor(key);
+  const raw = sdToRawForAxis(p, key);
+  const rawStr = (key==='drivingAccuracySD') ? raw.toFixed(1) : (key==='drivingDistanceSD' ? Math.round(raw) : raw.toFixed(2));
+  return `<strong>${p.name} (${tour})</strong><br>${label}: ${rawStr} ${unit} <span class="small">(${fmtSigned(v)} SD)</span>`;
+}
+
+
+function svgEl(tag, attrs={}, text){
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  Object.entries(attrs).forEach(([k,v]) => el.setAttribute(k, v));
+  if (text != null) el.textContent = text;
+  return el;
+}
+function hexToRgba(hex, a){ const c = hex.replace("#",""); const bigint = parseInt(c,16);
+  const r = (bigint>>16)&255, g=(bigint>>8)&255, b=bigint&255; return `rgba(${r},${g},${b},${a})`; }
+
+// Standard normal CDF (high-quality approximation)
+function normalCdf(z){
+  // Abramowitz-Stegun 7.1.26 with tweak; error < 7.5e-8
+  const sign = z < 0 ? -1 : 1;
+  const x = Math.abs(z) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * x);
+  const a1=0.254829592, a2=-0.284496736, a3=1.421413741, a4=-1.453152027, a5=1.061405429;
+  const erf = 1 - (((((a5*t + a4)*t) + a3)*t + a2)*t + a1)*t*Math.exp(-x*x);
+  const cdf = 0.5 * (1 + sign * erf);
+  return cdf;
+}
+
+// Return integer 0..99. Example: z=0.6 → ~72 or 73
+function zToPercentile(z){
+  const cdf = normalCdf(z);
+  // Map to 0..99 with rounding (DataGolf shows 0..99)
+  const p = Math.round(cdf * 100 - 0.5);
+  return Math.max(0, Math.min(99, p));
+}
+
+
+/* ========= Events ========= */
+addBtn.addEventListener('click', () => { const p = buildProfileFromForm(); if (!p) return; upsertProfile(p); });
+quickBtn.addEventListener('click', () => {
+  const line = quickEl.value.trim(); if (!line) return;
+  const p = parseQuick(line);
+  if (!p) { alert("Quick format invalid. Use: Name | 305, 62, 0.3, 0.1, 0.2 | PGA"); return; }
+  upsertProfile(p); quickEl.value = "";
+});
+clearBtn.addEventListener('click', () => {
+  if (!confirm("Delete all saved players?")) return;
+  profiles = []; saveProfiles(profiles); renderList(); render();
+});
+
+/* ========= Boot ========= */
+if (profiles.length === 0){
+  profiles = [
+    // Simple PGA demo vs LPGA demo
+    parseQuick("Sample PGA | 305, 62, 0.3, 0.1, 0.2 | PGA"),
+    parseQuick("Sample LPGA | 262, 70, 0.2, 0.05, 0.15 | LPGA"),
+  ].filter(Boolean);
+  saveProfiles(profiles);
+}
+renderList(); render();
+</script>
+</body>
+</html>
