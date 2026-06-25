@@ -19,7 +19,7 @@ jobs:
       - name: Production build
         run: npm run build
       - name: Verify build output
-        run: test -f dist/index.html && test -f dist/play_tab.html
+        run: test -f dist/index.html && ls dist/assets/*.js >/dev/null
       - name: API smoke test
         run: |
           node server/index.js &
