@@ -93,6 +93,65 @@ window.addEventListener('storage', (e) => {
   if (e.key === 'selectedCourseName' || e.key === 'selectedCourse') refreshCourse();
 });
 
+// --- Playing conditions (AI Caddie API) ---
+const condForm = document.getElementById('conditionsForm');
+const condQuery = document.getElementById('conditionsQuery');
+const condResult = document.getElementById('conditionsResult');
+const condMsg = document.getElementById('conditionsMsg');
+
+// Prefill with the selected course name when available.
+try {
+  const c = localStorage.getItem('selectedCourseName');
+  if (c && condQuery) condQuery.value = c;
+} catch (_) {}
+
+const wmoText = (code) => {
+  const map = {
+    0: 'Clear', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+    45: 'Fog', 48: 'Rime fog', 51: 'Light drizzle', 61: 'Light rain',
+    63: 'Rain', 65: 'Heavy rain', 71: 'Snow', 80: 'Showers', 95: 'Thunderstorm',
+  };
+  return map[code] || '—';
+};
+
+async function checkConditions(q) {
+  if (!q) { condMsg.textContent = 'Enter a course or city first.'; return; }
+  condMsg.textContent = 'Fetching live conditions…';
+  condResult.hidden = true;
+  try {
+    const r = await fetch(`/api/conditions?q=${encodeURIComponent(q)}`);
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
+    const { location, weather, adjustment } = data;
+    const sign = adjustment.totalPct >= 0 ? '+' : '';
+    condResult.innerHTML = `
+      <p class="cond-loc">📍 ${location.name || `${location.lat.toFixed(3)}, ${location.lon.toFixed(3)}`}</p>
+      <div class="cond-grid">
+        <div class="cond-metric"><div class="k">Temp</div><div class="v">${fmt(weather.tempF, '°F')}</div></div>
+        <div class="cond-metric"><div class="k">Wind</div><div class="v">${fmt(weather.windMph, ' mph')}</div><div class="k">${weather.windFrom || ''}</div></div>
+        <div class="cond-metric"><div class="k">Humidity</div><div class="v">${fmt(weather.humidityPct, '%')}</div></div>
+        <div class="cond-metric"><div class="k">Elevation</div><div class="v">${adjustment.elevationFt.toLocaleString()} ft</div></div>
+        <div class="cond-metric"><div class="k">Sky</div><div class="v" style="font-size:15px">${wmoText(weather.weatherCode)}</div></div>
+      </div>
+      <div class="cond-adjust">
+        <div>Carry adjustment <strong>${sign}${adjustment.totalPct}%</strong>
+          <span class="muted">(altitude ${adjustment.altitudePct >= 0 ? '+' : ''}${adjustment.altitudePct}%, temp ${adjustment.tempPct >= 0 ? '+' : ''}${adjustment.tempPct}%)</span></div>
+        <div class="big">A 150 yd shot plays like ${adjustment.playsLike150} yd</div>
+        <div class="muted small">${adjustment.note}</div>
+      </div>`;
+    condResult.hidden = false;
+    condMsg.textContent = '';
+  } catch (e) {
+    condMsg.textContent = `Could not load conditions: ${e.message}. (Is the API server running? Try \`npm run dev\`.)`;
+  }
+}
+const fmt = (v, unit) => (v == null ? '—' : `${Math.round(v)}${unit}`);
+
+condForm?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  checkConditions(condQuery.value.trim());
+});
+
 // --- Mobile nav toggle ---
 document.getElementById('menuBtn').addEventListener('click', () => {
   app.classList.toggle('nav-open');

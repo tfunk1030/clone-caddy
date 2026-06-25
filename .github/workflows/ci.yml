@@ -20,3 +20,11 @@ jobs:
         run: npm run build
       - name: Verify build output
         run: test -f dist/index.html && test -f dist/play_tab.html
+      - name: API smoke test
+        run: |
+          node server/index.js &
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:8787/api/health && break
+            sleep 0.5
+          done
+          curl -sf http://localhost:8787/api/health | grep -q '"ok":true'

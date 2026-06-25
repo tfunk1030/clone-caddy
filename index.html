@@ -79,6 +79,19 @@
             </button>
           </div>
 
+          <div class="conditions-panel">
+            <div class="conditions-head">
+              <h3>⛅ Playing conditions</h3>
+              <form class="conditions-form" id="conditionsForm">
+                <input type="text" id="conditionsQuery" placeholder="Course or city (e.g. Augusta National)" autocomplete="off" />
+                <button class="primary-btn" type="submit">Check</button>
+              </form>
+            </div>
+            <p class="muted small">Live weather, elevation and an estimated carry adjustment from the AI Caddie API.</p>
+            <div id="conditionsResult" class="conditions-result" hidden></div>
+            <p id="conditionsMsg" class="muted small"></p>
+          </div>
+
           <div class="info-grid">
             <div class="info-panel">
               <h3>Currently selected course</h3>

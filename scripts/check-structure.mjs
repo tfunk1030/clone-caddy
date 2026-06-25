@@ -18,7 +18,18 @@ function mustExist(rel) {
 
 console.log('AI Caddie structure check\n');
 
-['index.html', 'src/main.js', 'src/style.css', 'package.json', 'vite.config.js'].forEach(mustExist);
+['index.html', 'src/main.js', 'src/style.css', 'package.json', 'vite.config.js',
+ 'server/index.js', 'scripts/dev.mjs'].forEach(mustExist);
+
+// API wiring: shell must call the conditions endpoint, server must expose it.
+const mainJs = readFileSync(resolve(root, 'src/main.js'), 'utf8');
+const serverJs = readFileSync(resolve(root, 'server/index.js'), 'utf8');
+for (const route of ['/api/health', '/api/geocode', '/api/conditions', '/api/course']) {
+  if (serverJs.includes(`'${route}'`)) ok(`API route ${route}`);
+  else errors.push(`server does not define ${route}`);
+}
+if (mainJs.includes('/api/conditions')) ok('shell calls /api/conditions');
+else errors.push('shell does not call /api/conditions');
 
 const tabs = ['play_tab.html', 'prepare_tab.html', 'dispersion_tab.html', 'stats_tab.html'];
 tabs.forEach((t) => mustExist(`public/${t}`));

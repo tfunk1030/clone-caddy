@@ -33,8 +33,12 @@ Plus a unified app shell with:
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
+npm run dev        # web on http://localhost:5173 + API on http://localhost:8787
 ```
+
+`npm run dev` runs both the Vite web server and the API server together (Vite
+proxies `/api` → the API). To run them separately use `npm run dev:web` and
+`npm run api`.
 
 Build for production and preview:
 
@@ -56,6 +60,31 @@ npm run lint
 
 ---
 
+## API
+
+A small, **keyless** Node/Express service (`server/index.js`) adds the
+weather/conditions and course-data backend the product always needed. It uses
+the free Open-Meteo and OpenStreetMap endpoints (no API key required) and routes
+through `HTTPS_PROXY` when set.
+
+| Endpoint | Description |
+| --- | --- |
+| `GET /api/health` | Liveness check. |
+| `GET /api/geocode?q=` | Place/course search via Nominatim (with a compliant User-Agent — the browser calls didn't have one). |
+| `GET /api/weather?lat=&lon=` | Current temperature, wind, humidity, pressure and elevation (Open-Meteo). |
+| `GET /api/conditions?q=` *or* `?lat=&lon=` | Weather + elevation **plus an estimated golf carry adjustment** from altitude and temperature. Wired into the Home dashboard. |
+| `GET /api/course?q=` *or* `?lat=&lon=&radius=` | Golf features (greens, tees, bunkers, fairways…) near a point via Overpass, with mirror fallback. |
+
+Example:
+
+```bash
+curl "http://localhost:8787/api/conditions?q=Denver"
+# -> Denver (5,279 ft) reports a +10% carry adjustment: a 150 yd shot plays like 165 yd.
+```
+
+The carry adjustment uses standard rules of thumb (≈2% per 1000 ft of altitude,
+≈1% per 10 °F vs a sea-level/70 °F baseline) and is labelled as an estimate.
+
 ## Project structure
 
 ```
@@ -73,7 +102,10 @@ npm run lint
 │       ├── js/                #   performanceManager, courseDataManager, etc.
 │       ├── short_game_modifiers.json
 │       └── *.csv
-├── scripts/check-structure.mjs
+├── server/index.js            # Keyless API: conditions, geocode, course, health
+├── scripts/
+│   ├── dev.mjs                # Runs web + API together
+│   └── check-structure.mjs
 ├── research/                  # Original Python physics model + data collection (not part of the web app)
 └── vite.config.js
 ```
