@@ -7,6 +7,8 @@ import { resolve } from 'node:path';
 // inputs ensures they are also emitted into the production build.
 export default defineConfig({
   appType: 'mpa',
+  // Root for Vercel/custom domains; set VITE_BASE=/<repo>/ for GitHub Pages.
+  base: process.env.VITE_BASE || '/',
   build: {
     target: 'es2020',
     rollupOptions: {

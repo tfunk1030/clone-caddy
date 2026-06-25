@@ -4,12 +4,16 @@
 // unified navigation shell, shared course display, and a Cesium token setting on
 // top — none of which existed in the original collection of loose HTML files.
 
+// Base path so the same build works at the domain root (Vercel) or under a
+// sub-path (GitHub Pages project sites serve from /<repo>/). Vite injects this.
+const BASE = import.meta.env.BASE_URL; // always ends with '/'
+
 const VIEWS = {
   home: { title: 'Home' },
-  play: { title: 'Play — Course Map', src: '/play_tab.html' },
-  prepare: { title: 'Prepare — Course Study', src: '/prepare_tab.html' },
-  dispersion: { title: 'Dispersion — Shot Pattern', src: '/dispersion_tab.html' },
-  stats: { title: 'Stats — Skill Profiles', src: '/stats_tab.html' },
+  play: { title: 'Play — Course Map', src: `${BASE}play_tab.html` },
+  prepare: { title: 'Prepare — Course Study', src: `${BASE}prepare_tab.html` },
+  dispersion: { title: 'Dispersion — Shot Pattern', src: `${BASE}dispersion_tab.html` },
+  stats: { title: 'Stats — Skill Profiles', src: `${BASE}stats_tab.html` },
 };
 
 const app = document.getElementById('app');
@@ -114,14 +118,60 @@ const wmoText = (code) => {
   return map[code] || '—';
 };
 
+// Carry adjustment (mirrors server/lib.js) for the static fallback path.
+function carryAdjustment(elevationM, tempF) {
+  const elevationFt = elevationM != null ? elevationM * 3.28084 : 0;
+  const altitudePct = (elevationFt / 1000) * 2.0;
+  const tempPct = tempF != null ? ((tempF - 70) / 10) * 1.0 : 0;
+  const totalPct = altitudePct + tempPct;
+  const r1 = (n) => Math.round(n * 10) / 10;
+  return {
+    altitudePct: r1(altitudePct), tempPct: r1(tempPct), totalPct: r1(totalPct),
+    elevationFt: Math.round(elevationFt), playsLike150: Math.round(150 * (1 + totalPct / 100)),
+    note: 'Estimate: ~2% carry per 1000 ft altitude, ~1% per 10°F vs a sea-level 70°F baseline. Does not account for wind, humidity or spin.',
+  };
+}
+const DIRS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+const compass = (deg) => (deg == null ? null : DIRS[Math.round(deg / 22.5) % 16]);
+
+// Fallback used when no AI Caddie backend is present (e.g. a static-only host
+// like GitHub Pages). Calls the same free public services directly.
+async function conditionsDirect(q) {
+  const g = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`).then((r) => r.json());
+  if (!g.length) throw new Error(`No location found for "${q}"`);
+  const lat = parseFloat(g[0].lat), lon = parseFloat(g[0].lon);
+  const wUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weather_code&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
+  const eUrl = `https://api.open-meteo.com/v1/elevation?latitude=${lat}&longitude=${lon}`;
+  const [w, e] = await Promise.all([fetch(wUrl).then((r) => r.json()), fetch(eUrl).then((r) => r.json())]);
+  const c = w.current || {};
+  const elevationM = Array.isArray(e.elevation) ? e.elevation[0] : e.elevation;
+  return {
+    location: { name: g[0].display_name, lat, lon },
+    weather: {
+      tempF: c.temperature_2m, humidityPct: c.relative_humidity_2m, windMph: c.wind_speed_10m,
+      windDirDeg: c.wind_direction_10m, weatherCode: c.weather_code, windFrom: compass(c.wind_direction_10m),
+    },
+    adjustment: carryAdjustment(elevationM, c.temperature_2m),
+  };
+}
+
 async function checkConditions(q) {
   if (!q) { condMsg.textContent = 'Enter a course or city first.'; return; }
   condMsg.textContent = 'Fetching live conditions…';
   condResult.hidden = true;
   try {
-    const r = await fetch(`/api/conditions?q=${encodeURIComponent(q)}`);
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
+    let data;
+    // Prefer the optimized backend; fall back to direct public APIs on a
+    // static-only host (no /api routes).
+    try {
+      const r = await fetch(`/api/conditions?q=${encodeURIComponent(q)}`);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `API ${r.status}`);
+      const ct = r.headers.get('content-type') || '';
+      if (!ct.includes('json')) throw new Error('no backend');
+      data = await r.json();
+    } catch (_) {
+      data = await conditionsDirect(q);
+    }
     const { location, weather, adjustment } = data;
     const sign = adjustment.totalPct >= 0 ? '+' : '';
     condResult.innerHTML = `
@@ -142,7 +192,7 @@ async function checkConditions(q) {
     condResult.hidden = false;
     condMsg.textContent = '';
   } catch (e) {
-    condMsg.textContent = `Could not load conditions: ${e.message}. (Is the API server running? Try \`npm run dev\`.)`;
+    condMsg.textContent = `Could not load conditions: ${e.message}.`;
   }
 }
 const fmt = (v, unit) => (v == null ? '—' : `${Math.round(v)}${unit}`);

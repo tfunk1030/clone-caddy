@@ -51,8 +51,8 @@ for (const tab of tabs) {
 const index = readFileSync(resolve(root, 'index.html'), 'utf8');
 const main = readFileSync(resolve(root, 'src/main.js'), 'utf8');
 for (const t of tabs) {
-  if (main.includes(`/${t}`)) ok(`shell wires /${t}`);
-  else errors.push(`index/shell does not reference /${t}`);
+  if (main.includes(t)) ok(`shell wires ${t}`);
+  else errors.push(`shell does not reference ${t}`);
 }
 
 console.log('');

@@ -95,6 +95,16 @@ Pages + Functions) works the same way.
 > The bundled Cesium Ion token in the deployed demo may be rate-limited — add your
 > own under **Settings** in the app (stored in your browser).
 
+### GitHub Pages (static, no backend)
+
+A `Deploy to GitHub Pages` workflow (`.github/workflows/deploy-pages.yml`) is
+included. Enable it under **Settings → Pages → Source → "GitHub Actions"**, and
+every push to `main` publishes the app. There are no serverless functions on
+Pages, but the app stays fully functional: the conditions widget **automatically
+falls back** to calling the public weather/geo services directly from the browser
+when no `/api` backend is present. The workflow sets the correct base path for a
+project site automatically.
+
 ## API
 
 A small, **keyless** Node/Express service (`server/index.js`) adds the
