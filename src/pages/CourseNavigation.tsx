@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { Search, MapPin, Layers, AlertTriangle } from 'lucide-react';
+import { Search, MapPin, Layers, AlertTriangle, Flag } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MAPBOX_TOKEN, isMapboxConfigured, MAP_STYLE } from '@/lib/mapbox';
 import { toGeoJSON, colorMatchExpression, KIND_COLORS } from '@/lib/overpass';
+import { extractHoles, courseSummary, type Hole } from '@/lib/holes';
 
 type Course = { name: string; lat: number; lon: number };
 
@@ -18,6 +19,8 @@ export default function CourseNavigation() {
   const [active, setActive] = useState<Course | null>(null);
   const [status, setStatus] = useState('');
   const [legend, setLegend] = useState<Record<string, number>>({});
+  const [holes, setHoles] = useState<Hole[]>([]);
+  const [selectedHole, setSelectedHole] = useState<number | null>(null);
 
   // Init map once.
   useEffect(() => {
@@ -44,6 +47,12 @@ export default function CourseNavigation() {
         filter: ['==', ['geometry-type'], 'LineString'],
         paint: { 'line-color': colorMatchExpression as any, 'line-width': 2 },
       });
+      // Highlight for the selected hole's centerline.
+      map.addSource('hole-hi', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({
+        id: 'hole-hi-line', type: 'line', source: 'hole-hi',
+        paint: { 'line-color': '#ffffff', 'line-width': 3, 'line-dasharray': [2, 1] },
+      });
     });
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };
@@ -54,9 +63,16 @@ export default function CourseNavigation() {
     if (!query.trim()) return;
     setStatus('Searching…');
     try {
-      const r = await fetch(`/api/geocode?q=${encodeURIComponent(query)}&limit=6`);
+      const r = await fetch(`/api/geocode?q=${encodeURIComponent(query)}&limit=10`);
       const data = await r.json();
-      setResults((data.results || []).map((x: any) => ({ name: x.name, lat: x.lat, lon: x.lon })));
+      // Rank actual golf courses ahead of streets/places of the same name.
+      const golfRank = (x: any) =>
+        (x.type === 'golf_course' ? 0 : x.category === 'leisure' ? 1 : /golf|links|country club/i.test(x.name) ? 2 : 3);
+      const ranked = (data.results || [])
+        .map((x: any) => ({ name: x.name, lat: x.lat, lon: x.lon, type: x.type, category: x.category }))
+        .sort((a: any, b: any) => golfRank(a) - golfRank(b))
+        .slice(0, 6);
+      setResults(ranked);
       setStatus('');
     } catch {
       setStatus('Search failed.');
@@ -77,27 +93,25 @@ export default function CourseNavigation() {
       const src = map?.getSource('course') as mapboxgl.GeoJSONSource | undefined;
       if (src) src.setData(fc as any);
       setLegend(data.byType || {});
-      setStatus(`${data.count || 0} features loaded`);
+      const hs = extractHoles(data.elements || []);
+      setHoles(hs);
+      setSelectedHole(null);
+      setStatus(`${data.count || 0} features · ${hs.length} holes`);
     } catch {
       setStatus('Could not load course features.');
     }
   };
 
-  if (!isMapboxConfigured) {
-    return (
-      <div className="grid h-full place-items-center p-6">
-        <Card className="max-w-lg">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-primary" /> Mapbox token needed</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <p>The 3D course map needs a Mapbox access token. Set <code className="rounded bg-muted px-1">VITE_MAPBOX_TOKEN</code> in your environment (Vercel project env or a local <code className="rounded bg-muted px-1">.env</code>), then redeploy.</p>
-            <p>Get a free token at <a className="text-primary underline" href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noopener">account.mapbox.com</a>.</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  const selectHole = (h: Hole) => {
+    setSelectedHole(h.number);
+    const map = mapRef.current;
+    if (!map) return;
+    const hi = map.getSource('hole-hi') as mapboxgl.GeoJSONSource | undefined;
+    if (hi) hi.setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: h.path } } as any);
+    if (h.green) map.flyTo({ center: [h.green.lon, h.green.lat], zoom: 16.8, pitch: 62, essential: true });
+  };
+
+  const summary = courseSummary(holes);
 
   return (
     <div className="flex h-full flex-col md:flex-row">
@@ -140,9 +154,48 @@ export default function CourseNavigation() {
             </div>
           </div>
         )}
+
+        {holes.length > 0 && (
+          <div>
+            <div className="mb-2 flex items-center justify-between text-sm font-semibold">
+              <span className="flex items-center gap-2"><Flag className="h-4 w-4" /> Holes</span>
+              <span className="text-xs font-normal text-muted-foreground">
+                {summary.totalPar ? `par ${summary.totalPar} · ` : ''}{summary.totalYds.toLocaleString()} yd
+              </span>
+            </div>
+            <div className="max-h-72 space-y-1 overflow-auto pr-1">
+              {holes.map((h, i) => (
+                <button key={i} onClick={() => selectHole(h)}
+                  className={`flex w-full items-center justify-between rounded-md border px-2.5 py-1.5 text-left text-sm transition-colors ${
+                    selectedHole === h.number ? 'border-primary bg-primary/15 text-primary' : 'border-border hover:bg-muted'
+                  }`}>
+                  <span className="flex items-center gap-2">
+                    <span className="inline-grid h-5 w-5 place-items-center rounded bg-muted text-[11px] font-bold">{h.number}</span>
+                    {h.par && <span className="text-xs text-muted-foreground">par {h.par}</span>}
+                  </span>
+                  <span className="text-xs tabular-nums">{h.yards} yd</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
-      <div ref={mapEl} className="min-h-[320px] flex-1" />
+      {isMapboxConfigured ? (
+        <div ref={mapEl} className="min-h-[320px] flex-1" />
+      ) : (
+        <div className="grid min-h-[320px] flex-1 place-items-center p-6">
+          <Card className="max-w-lg">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-primary" /> 3D map needs a Mapbox token</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <p>Course search and the hole list work without it — but the 3D satellite map needs <code className="rounded bg-muted px-1">VITE_MAPBOX_TOKEN</code> set in your environment (Vercel project env or local <code className="rounded bg-muted px-1">.env</code>), then redeploy.</p>
+              <p>Get a free token at <a className="text-primary underline" href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noopener">account.mapbox.com</a>.</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
