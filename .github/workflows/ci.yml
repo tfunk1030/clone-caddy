@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install
+      - name: Structure check
+        run: npm run lint
+      - name: Production build
+        run: npm run build
+      - name: Verify build output
+        run: test -f dist/index.html && test -f dist/play_tab.html
+      - name: API smoke test
+        run: |
+          node server/index.js &
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:8787/api/health && break
+            sleep 0.5
+          done
+          curl -sf http://localhost:8787/api/health | grep -q '"ok":true'

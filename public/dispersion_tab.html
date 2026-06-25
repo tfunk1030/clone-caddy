@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scatter + Tight Enclosing Ellipse (MVEE)</title>
+<style>
+  :root {
+    --left-w: 280px;
+    --right-w: 460px;
+    --bg: #0f172a;           /* slate-900 */
+    --panel: #111827;        /* gray-900 */
+    --panel-2: #0b1220;      /* deeper bg */
+    --muted: #94a3b8;        /* slate-400 */
+    --text: #e5e7eb;         /* gray-200 */
+    --accent: #60a5fa;       /* blue-400 */
+    --grid: #334155;         /* slate-700 */
+    --grid-bold: #e2e8f0;    /* slate-100 */
+    --axis: #cbd5e1;         /* slate-300 */
+    --chip: #1f2937;         /* gray-800 */
+  }
+  * { box-sizing: border-box; }
+  html, body { height:100%; margin:0; background:var(--bg); color:var(--text); font:14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;}
+  .app { display:flex; height:100%; width:100%; }
+  aside.left, aside.right { flex:0 0 auto; background:var(--panel); padding:16px; overflow:auto; }
+  aside.left { width: var(--left-w); border-right:1px solid #1f2937; }
+  aside.right { width: var(--right-w); border-left:1px solid #1f2937; }
+  .center { flex:1 1 auto; min-width:320px; display:flex; flex-direction:column; gap:8px; padding:10px; }
+  .panel { background:var(--panel-2); border:1px solid #1f2937; border-radius:10px; padding:12px; }
+  h2,h3,h4{ margin:0 0 8px 0; font-weight:600; letter-spacing:.2px;}
+  h2{font-size:16px} h3{font-size:15px} h4{font-size:14px}
+  label{ display:block; margin:8px 0 4px; color:var(--muted);}
+  input[type="number"],input[type="text"],select,textarea{ width:100%; padding:8px 10px; border-radius:8px; border:1px solid #1f2937; background:#0b1220; color:var(--text); outline:none;}
+  textarea{ resize:vertical; }
+  .row{ display:flex; gap:10px;} .row>*{flex:1 1 0;}
+  button{ background:var(--accent); color:#0b1220; border:none; padding:10px 12px; border-radius:10px; cursor:pointer; font-weight:600; margin-top:10px;}
+  button:hover{ filter:brightness(1.1);}
+  .hint{ color:var(--muted); font-size:12px; margin-top:4px;}
+  .svg-wrap{ flex:1 1 auto; min-height:320px; position:relative;}
+  svg{ width:100%; height:100%; display:block; background:radial-gradient(ellipse at 30% 30%, rgba(255,255,255,.02), rgba(255,255,255,0) 60%); border:1px solid #1f2937; border-radius:10px;}
+  .legend { display:flex; flex-wrap:wrap; gap:8px; align-items:center;}
+  .chip { display:inline-flex; gap:8px; align-items:center; padding:6px 10px; background:var(--chip); border-radius:999px; border:1px solid #1f2937; font-size:12px;}
+  .shape-swatch { width:16px; height:16px; display:inline-block; }
+  .color-swatch { width:12px; height:12px; border-radius:50%; display:inline-block; }
+  .two-col { display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .two-col > .full { grid-column:1 / -1; }
+  .multiselect{ height:120px; }
+  table{ width:100%; border-collapse:collapse; font-size:13px; margin-top:10px;}
+  thead th{ position:sticky; top:0; background:#0d1629; z-index:1;}
+  th,td{ text-align:right; border-bottom:1px solid #1f2937; padding:6px 8px; color:#d1d5db;}
+  th:first-child,td:first-child{text-align:left;}
+  .tooltip{ position:absolute; pointer-events:none; background:#111827; color:#e5e7eb; border:1px solid #1f2937; padding:8px 10px; border-radius:8px; font-size:12px; display:none; white-space:nowrap;}
+  .section-title{ margin-top:14px;}
+  .danger{ background:#ef4444; color:white;}
+  .controls-tight label{ margin:0; }
+  .filters-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .inline-check { display:flex; align-items:center; gap:8px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- LEFT TOOLBAR -->
+  <aside class="left">
+    <h2>Data Entry</h2>
+    <div class="panel">
+      <label for="yInput">Carry Distance (y)</label>
+      <input type="number" id="yInput" placeholder="0–350" step="1" min="-10" />
+      <label for="xInput">Yards Offline (x)</label>
+      <input type="number" id="xInput" placeholder="-20 to 20+" step="1" />
+      <div class="row">
+        <div>
+          <label for="clubInput">Club Type</label>
+          <input type="text" id="clubInput" placeholder="e.g., 7i" value="N/A" />
+        </div>
+        <div>
+          <label for="shotInput">Shot Type</label>
+          <input type="text" id="shotInput" placeholder="e.g., Stock" value="N/A" />
+        </div>
+      </div>
+      <button id="submitBtn">Submit Shot</button>
+      <div class="hint">Adds a point tagged <b>club|shot</b>. Existing points remain.</div>
+    </div>
+
+    <h3 class="section-title">Import / Export</h3>
+    <div class="panel">
+      <label>Import CSV (x,y,club,shot)</label>
+      <input type="file" id="csvFile" accept=".csv,text/csv" />
+      <div class="row" style="align-items:center;">
+        <div class="inline-check">
+          <input type="checkbox" id="replacePoints" />
+          <label for="replacePoints" style="margin:0;">Replace existing</label>
+        </div>
+        <button id="importFileBtn">Import File</button>
+      </div>
+      <label style="margin-top:10px;">Or paste CSV</label>
+      <textarea id="csvPaste" rows="5" placeholder="x,y,club,shot&#10;-3,162,7i,Stock"></textarea>
+      <div class="row">
+        <button id="importPasteBtn">Import Pasted</button>
+        <button id="exportBtn" title="Download current points as CSV">Export CSV</button>
+      </div>
+      <div class="hint">Drag & drop a .csv onto the plot to import.</div>
+      <div id="importStatus" class="hint"></div>
+    </div>
+
+    <h3 class="section-title">Legends</h3>
+    <div class="panel">
+      <h4>Clubs (shapes)</h4>
+      <div id="clubLegend" class="legend" style="margin-bottom:8px;"></div>
+      <h4>Shot Types (colors)</h4>
+      <div id="shotLegend" class="legend"></div>
+    </div>
+  </aside>
+
+  <!-- CENTER PLOT -->
+  <main class="center">
+    <div class="panel">
+      <h2>2D Scatter (yards)</h2>
+      <div class="hint">X grid every 5 (bold at x=0). Y grid every 10 (bold at 0,100,200,…). Y never below −10.</div>
+    </div>
+    <div class="svg-wrap panel" id="svgWrap">
+      <svg id="plot" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid meet" aria-label="Scatter Plot">
+        <defs><clipPath id="plotClip"><rect x="60" y="20" width="700" height="540"></rect></clipPath></defs>
+        <g id="grid"></g>
+        <g id="axes"></g>
+        <g id="points" clip-path="url(#plotClip)"></g>
+        <g id="ellipses" clip-path="url(#plotClip)"></g>
+      </svg>
+      <div class="tooltip" id="tooltip"></div>
+    </div>
+  </main>
+
+  <!-- RIGHT TOOLBAR -->
+  <aside class="right">
+    <h2>Filters & Ellipses</h2>
+    <div class="panel">
+      <div class="filters-row">
+        <div>
+          <label for="clubFilter">Club Filter</label>
+          <select id="clubFilter" class="multiselect" multiple></select>
+        </div>
+        <div>
+          <label for="shotFilter">Shot Type Filter</label>
+          <select id="shotFilter" class="multiselect" multiple></select>
+        </div>
+      </div>
+      <div class="row" style="align-items:center; margin-top:8px;">
+        <div class="inline-check">
+          <input type="checkbox" id="applyToPoints" checked />
+          <label for="applyToPoints" style="margin:0;">Apply filters to points</label>
+        </div>
+        <div class="inline-check">
+          <input type="checkbox" id="showEllipse" checked />
+          <label for="showEllipse" style="margin:0;">Show ellipses</label>
+        </div>
+      </div>
+
+      <div class="two-col" style="margin-top:8px;">
+        <label for="threshold">Threshold (%)</label>
+        <input type="number" id="threshold" min="50" max="100" step="0.1" value="90" />
+        <button id="redrawBtn" class="full">Update Ellipses</button>
+        <div class="hint full">Uses MVEE. At 100%, ellipse tightly encloses all points. Below 100%, it encloses the densest subset of size ≈ threshold%.</div>
+      </div>
+    </div>
+
+    <h3 class="section-title">Ellipse Data</h3>
+    <div class="panel" style="max-height:35vh; overflow:auto;">
+      <table id="ellipseTable">
+        <thead>
+          <tr>
+            <th>Identifier</th>
+            <th>Width</th>
+            <th>Height</th>
+            <th>Center X</th>
+            <th>Center Y</th>
+            <th>Rotation°</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="hint">Width/Height are in data units (yards). Rotation is major axis vs +X (screen space).</div>
+    </div>
+
+    <h3 class="section-title">Points</h3>
+    <div class="panel" style="max-height:30vh; overflow:auto;">
+      <table id="pointsTable">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>X</th>
+            <th>Y</th>
+            <th>Club</th>
+            <th>Shot</th>
+            <th>Tag</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <button id="clearAll" class="danger" style="margin-top:8px;">Delete All Points</button>
+    </div>
+  </aside>
+</div>
+
+<script>
+/* =======================
+   Data + State
+======================= */
+let nextId = 1;
+const data = []; // {id, x, y, club, shot, tag}
+const clubShapes = {}; // club -> shape name
+const shotColors = {}; // shot -> color
+const shapeCycle = [
+  'circle','square','triangle-up','diamond','cross','x','triangle-down','star','hex','dot','kite','pentagon'
+];
+const colorPool = [
+  '#60a5fa','#f472b6','#22d3ee','#34d399','#fbbf24','#a78bfa','#fb7185',
+  '#4ade80','#f59e0b','#7dd3fc','#c084fc','#fca5a5','#86efac','#fde047'
+];
+let shapeIdx = 0, colorIdx = 0;
+
+const state = {
+  xMinBase: -20, xMaxBase: 20,
+  yMinBase: -10, yMaxBase: 100,      // never below -10
+  padding: { left: 60, right: 40, top: 20, bottom: 40 },
+  clubFilter: new Set(['__ALL__']),
+  shotFilter: new Set(['__ALL__']),
+  applyToPoints: true,
+  showEllipse: true,
+  thresholdPct: 90.0
+};
+
+/* =======================
+   DOM
+======================= */
+const svg = document.getElementById('plot');
+const gridG = document.getElementById('grid');
+const axesG = document.getElementById('axes');
+const ptsG  = document.getElementById('points');
+const ellG  = document.getElementById('ellipses');
+const tooltip = document.getElementById('tooltip');
+
+const yInput = document.getElementById('yInput');
+const xInput = document.getElementById('xInput');
+const clubInput = document.getElementById('clubInput');
+const shotInput = document.getElementById('shotInput');
+const submitBtn = document.getElementById('submitBtn');
+
+const clubFilterEl = document.getElementById('clubFilter');
+const shotFilterEl = document.getElementById('shotFilter');
+const applyToPointsCb = document.getElementById('applyToPoints');
+const showEllipseCb = document.getElementById('showEllipse');
+const thresholdInput = document.getElementById('threshold');
+const redrawBtn = document.getElementById('redrawBtn');
+
+const clubLegend = document.getElementById('clubLegend');
+const shotLegend = document.getElementById('shotLegend');
+
+const ellipseTable = document.querySelector('#ellipseTable tbody');
+const pointsTable = document.querySelector('#pointsTable tbody');
+const clearAllBtn = document.getElementById('clearAll');
+
+/* =======================
+   Utils & Scales
+======================= */
+function tagOf(club, shot) {
+  const c = (club || 'N/A').trim() || 'N/A';
+  const s = (shot || 'N/A').trim() || 'N/A';
+  return `${c}|${s}`;
+}
+function getShapeForClub(club) {
+  if (!clubShapes[club]) { clubShapes[club] = shapeCycle[shapeIdx % shapeCycle.length]; shapeIdx++; }
+  return clubShapes[club];
+}
+function getColorForShot(shot) {
+  if (!shotColors[shot]) { shotColors[shot] = colorPool[colorIdx % colorPool.length]; colorIdx++; }
+  return shotColors[shot];
+}
+function uniq(arr){ return Array.from(new Set(arr)).sort(); }
+
+function extentFromData() {
+  // points may be filtered out visually, but axes still reflect ALL data
+  if (data.length === 0) {
+    return { xMin: state.xMinBase, xMax: state.xMaxBase, yMin: state.yMinBase, yMax: state.yMaxBase };
+  }
+  let maxAbsX = 0, maxY = 0;
+  for (const d of data) { maxAbsX = Math.max(maxAbsX, Math.abs(d.x)); maxY = Math.max(maxY, d.y); }
+  const xLim = Math.max(state.xMaxBase, 1.2 * maxAbsX);
+  const yLim = Math.max(state.yMaxBase, 1.2 * maxY);
+  return { xMin: -xLim, xMax: xLim, yMin: state.yMinBase, yMax: yLim };
+}
+function dims(){ const vb = svg.viewBox.baseVal; return { W: vb.width, H: vb.height }; }
+function innerDims(){
+  const { W, H } = dims(); const { left,right,top,bottom } = state.padding;
+  return { x0:left, y0:top, w: W-left-right, h: H-top-bottom };
+}
+function scales(){
+  const { xMin,xMax,yMin,yMax } = extentFromData();
+  const { x0,y0,w,h } = innerDims();
+  const sx = x => x0 + ((x - xMin)/(xMax - xMin))*w;
+  const sy = y => y0 + h - ((y - yMin)/(yMax - yMin))*h;
+  const ix = px => xMin + ((px - x0)/w)*(xMax - xMin);
+  const iy = py => yMin + (((y0 + h) - py)/h)*(yMax - yMin);
+  return { sx, sy, ix, iy, xMin,xMax,yMin,yMax, x0,y0,w,h };
+}
+function fmt(v){
+  return Math.abs(v) >= 100 ? v.toFixed(0) :
+         Math.abs(v) >= 10  ? v.toFixed(1) : v.toFixed(2);
+}
+function positionTooltip(ev){
+  const wrap = document.getElementById('svgWrap'); const r = wrap.getBoundingClientRect();
+  tooltip.style.left = (ev.clientX - r.left + 12) + 'px';
+  tooltip.style.top  = (ev.clientY - r.top + 12) + 'px';
+}
+
+/* =======================
+   Grid + Axes
+======================= */
+function drawGridAndAxes(){
+  const { sx, sy, xMin,xMax,yMin,yMax, x0,y0,w,h } = scales();
+  gridG.innerHTML = ''; axesG.innerHTML = '';
+
+  const border = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  border.setAttribute('x',x0); border.setAttribute('y',y0);
+  border.setAttribute('width',w); border.setAttribute('height',h);
+  border.setAttribute('fill','none'); border.setAttribute('stroke','#1f2937');
+  axesG.appendChild(border);
+
+  // X grid every 5, bold at x=0
+  const xStep=5; let xStart = Math.ceil(xMin/xStep)*xStep;
+  for(let x=xStart; x<=xMax; x+=xStep){
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1',sx(x)); line.setAttribute('x2',sx(x));
+    line.setAttribute('y1',y0); line.setAttribute('y2',y0+h);
+    const isZero = Math.abs(x) < 1e-9;
+    line.setAttribute('stroke', isZero ? 'var(--grid-bold)' : 'var(--grid)');
+    line.setAttribute('stroke-width', isZero ? 2 : 1);
+    gridG.appendChild(line);
+
+    const lbl = document.createElementNS('http://www.w3.org/2000/svg','text');
+    lbl.setAttribute('x',sx(x)); lbl.setAttribute('y',y0+h+16);
+    lbl.setAttribute('text-anchor','middle'); lbl.setAttribute('fill','var(--axis)'); lbl.setAttribute('font-size','12');
+    lbl.textContent = x; axesG.appendChild(lbl);
+  }
+
+  // Y grid every 10, bold at every 100 (including 0)
+  const yStep=10; let yStart = Math.ceil(yMin/yStep)*yStep;
+  for(let y=yStart; y<=yMax; y+=yStep){
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1',x0); line.setAttribute('x2',x0+w);
+    line.setAttribute('y1',sy(y)); line.setAttribute('y2',sy(y));
+    const isHundred = Math.abs(Math.round(y) % 100) === 0;
+    line.setAttribute('stroke', isHundred ? 'var(--grid-bold)' : 'var(--grid)');
+    line.setAttribute('stroke-width', isHundred ? 2 : 1);
+    gridG.appendChild(line);
+
+    const lbl = document.createElementNS('http://www.w3.org/2000/svg','text');
+    lbl.setAttribute('x',x0-6); lbl.setAttribute('y',sy(y)+4);
+    lbl.setAttribute('text-anchor','end'); lbl.setAttribute('fill','var(--axis)'); lbl.setAttribute('font-size','12');
+    lbl.textContent = y; axesG.appendChild(lbl);
+  }
+
+  // Axis labels
+  const xLabel = document.createElementNS('http://www.w3.org/2000/svg','text');
+  xLabel.setAttribute('x', x0 + w/2); xLabel.setAttribute('y', y0 + h + 34);
+  xLabel.setAttribute('text-anchor','middle'); xLabel.setAttribute('fill','var(--axis)'); xLabel.setAttribute('font-size','13');
+  xLabel.textContent = 'Yards Offline (X)';
+  const yLabel = document.createElementNS('http://www.w3.org/2000/svg','text');
+  yLabel.setAttribute('x', x0 - 45); yLabel.setAttribute('y', y0 + h/2);
+  yLabel.setAttribute('text-anchor','middle'); yLabel.setAttribute('fill','var(--axis)'); yLabel.setAttribute('font-size','13');
+  yLabel.setAttribute('transform', `rotate(-90 ${x0 - 45} ${y0 + h/2})`);
+  yLabel.textContent = 'Carry Distance (Y)';
+  axesG.appendChild(xLabel); axesG.appendChild(yLabel);
+}
+
+/* =======================
+   Shapes (clubs) + Points
+======================= */
+function drawMarker(g, px, py, shape, color){
+  const size = 7;
+  const e = (name) => document.createElementNS('http://www.w3.org/2000/svg', name);
+  const grp = e('g'); grp.setAttribute('transform', `translate(${px},${py})`);
+  grp.setAttribute('fill', color); grp.setAttribute('stroke', '#0b1220'); grp.setAttribute('stroke-width', 1);
+
+  switch(shape){
+    case 'circle': { const c=e('circle'); c.setAttribute('r', size); grp.appendChild(c); break; }
+    case 'square': { const r=e('rect'); r.setAttribute('x',-size); r.setAttribute('y',-size); r.setAttribute('width',2*size); r.setAttribute('height',2*size); grp.appendChild(r); break; }
+    case 'diamond': { const p=e('polygon'); p.setAttribute('points', `0,-${size} ${size},0 0,${size} -${size},0`); grp.appendChild(p); break; }
+    case 'triangle-up': { const p=e('polygon'); const h=size*1.2; p.setAttribute('points', `0,-${h} ${size*1.2},${h*0.7} -${size*1.2},${h*0.7}`); grp.appendChild(p); break; }
+    case 'triangle-down': { const p=e('polygon'); const h=size*1.2; p.setAttribute('points', `-${size*1.2},-${h*0.7} ${size*1.2},-${h*0.7} 0,${h}`); grp.appendChild(p); break; }
+    case 'cross': {
+      const l1=e('line'); l1.setAttribute('x1',-size); l1.setAttribute('y1',0); l1.setAttribute('x2',size); l1.setAttribute('y2',0);
+      const l2=e('line'); l2.setAttribute('x1',0); l2.setAttribute('y1',-size); l2.setAttribute('x2',0); l2.setAttribute('y2',size);
+      l1.setAttribute('stroke', color); l2.setAttribute('stroke', color); l1.setAttribute('stroke-width',2); l2.setAttribute('stroke-width',2);
+      grp.setAttribute('fill','none'); grp.setAttribute('stroke','none'); grp.appendChild(l1); grp.appendChild(l2); break;
+    }
+    case 'x': {
+      const l1=e('line'); l1.setAttribute('x1',-size); l1.setAttribute('y1',-size); l1.setAttribute('x2',size); l1.setAttribute('y2',size);
+      const l2=e('line'); l2.setAttribute('x1',-size); l2.setAttribute('y1',size); l2.setAttribute('x2',size); l2.setAttribute('y2',-size);
+      l1.setAttribute('stroke', color); l2.setAttribute('stroke', color); l1.setAttribute('stroke-width',2);
+      grp.setAttribute('fill','none'); grp.setAttribute('stroke','none'); grp.appendChild(l1); grp.appendChild(l2); break;
+    }
+    case 'star': {
+      const p=e('polygon'); const r=size, R=size*1.7; const pts=[];
+      for(let i=0;i<10;i++){ const a=-Math.PI/2 + i*Math.PI/5; const rad=(i%2? r: R); pts.push([Math.cos(a)*rad, Math.sin(a)*rad]); }
+      p.setAttribute('points', pts.map(([x,y])=>`${x},${y}`).join(' ')); grp.appendChild(p); break;
+    }
+    case 'hex': {
+      const p=e('polygon'); const r=size*1.2; const pts=[]; for(let i=0;i<6;i++){ const a=Math.PI/6 + i*Math.PI/3; pts.push([Math.cos(a)*r, Math.sin(a)*r]); }
+      p.setAttribute('points', pts.map(([x,y])=>`${x},${y}`).join(' ')); grp.appendChild(p); break;
+    }
+    case 'dot': { const c=e('circle'); c.setAttribute('r', size*0.6); grp.appendChild(c); break; }
+    case 'kite': { const p=e('polygon'); const a=size, b=size*1.5; p.setAttribute('points', `0,-${b} ${a},0 0,${b/2} -${a},0`); grp.appendChild(p); break; }
+    case 'pentagon': {
+      const p=e('polygon'); const r=size*1.1; const pts=[]; for(let i=0;i<5;i++){ const a=-Math.PI/2 + i*2*Math.PI/5; pts.push([Math.cos(a)*r, Math.sin(a)*r]); }
+      p.setAttribute('points', pts.map(([x,y])=>`${x},${y}`).join(' ')); grp.appendChild(p); break;
+    }
+    default: { const c=e('circle'); c.setAttribute('r', size); grp.appendChild(c); }
+  }
+  g.appendChild(grp);
+  return grp;
+}
+
+function updateLegends(){
+  clubLegend.innerHTML=''; shotLegend.innerHTML='';
+  const clubs = uniq(data.map(d=>d.club));
+  const shots = uniq(data.map(d=>d.shot));
+  // Clubs (shapes)
+  for(const club of clubs){
+    const shape = getShapeForClub(club);
+    const chip = document.createElement('span'); chip.className='chip';
+    const svgMini = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svgMini.setAttribute('width','20'); svgMini.setAttribute('height','20');
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g'); svgMini.appendChild(g);
+    drawMarker(g,10,10,shape,'#e5e7eb');
+    const txt = document.createElement('span'); txt.textContent = club;
+    chip.appendChild(svgMini); chip.appendChild(txt);
+    clubLegend.appendChild(chip);
+  }
+  if(!clubs.length) clubLegend.innerHTML = `<span class="hint">No clubs yet.</span>`;
+
+  // Shots (colors)
+  for(const shot of shots){
+    const color = getColorForShot(shot);
+    const chip = document.createElement('span'); chip.className='chip';
+    const sw = document.createElement('span'); sw.className='color-swatch'; sw.style.background = color;
+    const txt = document.createElement('span'); txt.textContent = shot;
+    chip.appendChild(sw); chip.appendChild(txt);
+    shotLegend.appendChild(chip);
+  }
+  if(!shots.length) shotLegend.innerHTML = `<span class="hint">No shots yet.</span>`;
+}
+
+/* =======================
+   Filtering
+======================= */
+function makeOptions(el, values){
+  const selected = new Set(Array.from(el.selectedOptions).map(o=>o.value));
+  const hadAll = selected.has('__ALL__') || selected.size===0;
+  el.innerHTML='';
+  const mk=(v,txt,sel)=>{ const o=document.createElement('option'); o.value=v; o.textContent=txt; if(sel) o.selected=true; return o; };
+  el.appendChild(mk('__ALL__','All', hadAll));
+  for(const v of values){ el.appendChild(mk(v, v, hadAll ? false : selected.has(v))); }
+}
+function rebuildFilters(){
+  makeOptions(clubFilterEl, uniq(data.map(d=>d.club)));
+  makeOptions(shotFilterEl, uniq(data.map(d=>d.shot)));
+  state.clubFilter = new Set(Array.from(clubFilterEl.selectedOptions).map(o=>o.value));
+  state.shotFilter = new Set(Array.from(shotFilterEl.selectedOptions).map(o=>o.value));
+}
+function normalizeMultiSelect(el){
+  const values = Array.from(el.selectedOptions).map(o=>o.value);
+  const hasAll = values.includes('__ALL__');
+  if(hasAll && values.length>1){ for(const opt of el.options){ if(opt.value==='__ALL__') opt.selected=false; } }
+  else if(!hasAll && values.length===0){ for(const opt of el.options){ if(opt.value==='__ALL__') opt.selected=true; } }
+}
+
+/* =======================
+   MVEE (Khachiyan) – tight enclosing ellipse
+   Returns {cx, cy, r1, r2, vx, vy, ux, uy} in data space
+======================= */
+function mvee(points, tol=1e-6, maxIter=1000){
+  const n = points.length;
+  if (n === 0) return null;
+
+  // 1 point: zero-radius ellipse
+  if (n === 1) {
+    return { cx: points[0].x, cy: points[0].y, r1: 0, r2: 0, vx: 1, vy: 0, ux: 0, uy: 1 };
+  }
+
+  // 2 points: ellipse centered at midpoint, major axis = half distance, tiny minor
+  if (n === 2) {
+    const [p,q] = points;
+    const cx = (p.x + q.x)/2, cy = (p.y + q.y)/2;
+    const dx = q.x - p.x, dy = q.y - p.y;
+    const L = Math.hypot(dx,dy)/2 || 0;
+    const vx = dx === 0 && dy === 0 ? 1 : dx/Math.hypot(dx,dy);
+    const vy = dx === 0 && dy === 0 ? 0 : dy/Math.hypot(dx,dy);
+    const ux = -vy, uy = vx;
+    const tiny = Math.max(1e-6, L*0.02); // 2% of major as a minimal minor
+    return { cx, cy, r1: L, r2: tiny, vx, vy, ux, uy };
+  }
+
+  // Build P: 3 x n matrix of augmented points [x; y; 1]
+  const P = new Array(3); for (let i=0;i<3;i++) P[i] = new Array(n);
+  for (let i=0;i<n;i++){ P[0][i]=points[i].x; P[1][i]=points[i].y; P[2][i]=1; }
+
+  let u = new Array(n).fill(1/n);
+
+  for (let iter=0; iter<maxIter; iter++){
+    const X = matMul3xN_PDPt(P, u);      // 3x3
+    const Xinv = inv3(X);
+    if (!Xinv) break; // fall out to fallback path below
+
+    // M_i = p_i^T * Xinv * p_i
+    let j = 0, maxM = -Infinity;
+    for (let i=0;i<n;i++){
+      const px = P[0][i], py = P[1][i], p1 = 1;
+      const v0 = Xinv[0][0]*px + Xinv[0][1]*py + Xinv[0][2]*p1;
+      const v1 = Xinv[1][0]*px + Xinv[1][1]*py + Xinv[1][2]*p1;
+      const v2 = Xinv[2][0]*px + Xinv[2][1]*py + Xinv[2][2]*p1;
+      const Mi = px*v0 + py*v1 + p1*v2;
+      if (Mi > maxM){ maxM = Mi; j = i; }
+    }
+
+    const eps = maxM - 3; // d+1 where d=2
+    if (eps <= tol) break;
+
+    const step = (maxM - 3) / (3 * (maxM - 1));
+    for (let k=0;k<n;k++) u[k] = (1 - step) * u[k];
+    u[j] += step;
+  }
+
+  // Center from u
+  let cx=0, cy=0;
+  for (let i=0;i<n;i++){ cx += u[i]*points[i].x; cy += u[i]*points[i].y; }
+
+  // A2 = (1/2) * (P diag(u) P^T)^{-1}[0:2,0:2]
+  const X = matMul3xN_PDPt(P, u);
+  const Xinv = inv3(X);
+  if (!Xinv) {
+    // Fallback: covariance ellipse on this set
+    return covarianceEllipse(points);
+  }
+  const A2 = [[Xinv[0][0]/2, Xinv[0][1]/2],
+              [Xinv[1][0]/2, Xinv[1][1]/2]];
+
+  const { evals, evecs } = eig2(A2);
+  // Clamp tiny negatives from numeric noise
+  let l1 = Math.max(evals[0], 1e-12), l2 = Math.max(evals[1], 1e-12);
+  let r1 = 1/Math.sqrt(l1), r2 = 1/Math.sqrt(l2);
+
+  // major eigenvector = larger radius
+  let vx = evecs[0][0], vy = evecs[1][0];
+  let ux = evecs[0][1], uy = evecs[1][1];
+  if (r2 > r1) { [r1,r2]=[r2,r1]; [vx,vy,ux,uy]=[ux,uy,vx,vy]; }
+
+  // If radii are NaN/inf, fallback
+  if (!Number.isFinite(r1) || !Number.isFinite(r2)) {
+    return covarianceEllipse(points);
+  }
+  return { cx, cy, r1, r2, vx, vy, ux, uy };
+}
+
+// Simple covariance ellipse as a last-ditch fallback (tight-ish at 95%)
+function covarianceEllipse(pts){
+  let mx=0,my=0; for(const p of pts){ mx+=p.x; my+=p.y; } mx/=pts.length; my/=pts.length;
+  let sxx=0,syy=0,sxy=0; const n1=pts.length-1||1;
+  for(const p of pts){ const dx=p.x-mx, dy=p.y-my; sxx+=dx*dx; syy+=dy*dy; sxy+=dx*dy; }
+  sxx/=n1; syy/=n1; sxy/=n1;
+  const tr=sxx+syy, det=sxx*syy - sxy*sxy;
+  const disc=Math.sqrt(Math.max(0,tr*tr/4 - det));
+  const lmax=tr/2+disc, lmin=tr/2-disc;
+  const r1=Math.sqrt(Math.max(0,lmax*5.991)) || 0.001; // 95% chi^2(2)=5.991
+  const r2=Math.sqrt(Math.max(0,lmin*5.991)) || 0.001;
+  let vx=1,vy=0; if(Math.abs(sxy)>1e-12){ vx=lmax - syy; vy=sxy; const n=Math.hypot(vx,vy)||1; vx/=n; vy/=n; }
+  const ux=-vy, uy=vx;
+  return { cx:mx, cy:my, r1, r2, vx, vy, ux, uy };
+}
+
+
+// Helpers for MVEE
+function matMul3xN_PDPt(P, u){
+  // returns 3x3 = P * diag(u) * P^T
+  const n = u.length;
+  const S = [[0,0,0],[0,0,0],[0,0,0]];
+  for(let i=0;i<n;i++){
+    const w = u[i];
+    const px=P[0][i], py=P[1][i], p1=1;
+    S[0][0] += w*px*px; S[0][1] += w*px*py; S[0][2] += w*px*p1;
+    S[1][0] += w*py*px; S[1][1] += w*py*py; S[1][2] += w*py*p1;
+    S[2][0] += w*p1*px; S[2][1] += w*p1*py; S[2][2] += w*p1*p1;
+  }
+  return S;
+}
+function inv3(m){
+  const a=m[0][0], b=m[0][1], c=m[0][2];
+  const d=m[1][0], e=m[1][1], f=m[1][2];
+  const g=m[2][0], h=m[2][1], i=m[2][2];
+
+  const A =   e*i - f*h;
+  const B = -(d*i - f*g);
+  const C =   d*h - e*g;
+  const D = -(b*i - c*h);
+  const E =   a*i - c*g;
+  const F = -(a*h - b*g);
+  const G =   b*f - c*e;   // <-- fixed (was c&e)
+  const H = -(a*f - c*d);
+  const I =   a*e - b*d;
+
+  const det = a*A + b*B + c*C;
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-12) return null;
+
+  const s = 1/det;
+  return [
+    [A*s, D*s, G*s],
+    [B*s, E*s, H*s],
+    [C*s, F*s, I*s]
+  ];
+}
+function eig2(M){
+  // symmetric 2x2
+  const a=M[0][0], b=M[0][1], c=M[1][1];
+  const tr = a + c;
+  const det = a*c - b*b;
+  const disc = Math.sqrt(Math.max(0, tr*tr/4 - det));
+  const l1 = tr/2 + disc;
+  const l2 = tr/2 - disc;
+  // eigenvector for l1
+  let vx=1, vy=0;
+  if (Math.abs(b) > 1e-12) { vx = l1 - c; vy = b; const n = Math.hypot(vx,vy); vx/=n; vy/=n; }
+  else { if (a >= c) { vx=1; vy=0; } else { vx=0; vy=1; } }
+  // orthogonal eigenvector
+  const ux = -vy, uy = vx;
+  return { evals:[l1,l2], evecs:[[vx,ux],[vy,uy]] };
+}
+
+/* =======================
+   Densest subset selection for threshold
+======================= */
+function densestSubset(points, pct){
+  const n = points.length;
+  if (n <= 3 || pct >= 99.999) return points.slice();
+  const h = Math.max(3, Math.ceil((pct/100) * n));
+  let mx=0,my=0; for(const p of points){ mx+=p.x; my+=p.y; } mx/=n; my/=n;
+  return points.slice().sort((a,b)=>{
+    const da=(a.x-mx)**2 + (a.y-my)**2;
+    const db=(b.x-mx)**2 + (b.y-my)**2;
+    return da - db;
+  }).slice(0, h);
+}
+
+
+/* =======================
+   Points & Tables
+======================= */
+function drawPoints(){
+  ptsG.innerHTML = '';
+  const { sx, sy } = scales();
+  for(const d of visiblePoints()){
+    const shape = getShapeForClub(d.club);
+    const color = getColorForShot(d.shot);
+    const grp = drawMarker(ptsG, sx(d.x), sy(d.y), shape, color);
+    grp.style.opacity = 0.95;
+
+    grp.addEventListener('mouseenter',(ev)=>{
+      tooltip.style.display='block';
+      tooltip.textContent = `${d.tag} (x=${fmt(d.x)}, y=${fmt(d.y)})`;
+      positionTooltip(ev);
+    });
+    grp.addEventListener('mousemove', positionTooltip);
+    grp.addEventListener('mouseleave', ()=>{ tooltip.style.display='none'; });
+  }
+}
+function visiblePoints(){
+  const selAllClubs = state.clubFilter.has('__ALL__');
+  const selAllShots = state.shotFilter.has('__ALL__');
+  if (!state.applyToPoints) return data; // show all points if not applying filters to points
+  return data.filter(d => (selAllClubs || state.clubFilter.has(d.club)) &&
+                          (selAllShots || state.shotFilter.has(d.shot)));
+}
+function rebuildPointsTable(){
+  pointsTable.innerHTML='';
+  data.forEach((d,idx)=>{
+    const tr=document.createElement('tr');
+    const cells = [idx+1, fmt(d.x), fmt(d.y), d.club, d.shot, d.tag];
+    for(const c of cells){ const td=document.createElement('td'); td.textContent=c; tr.appendChild(td); }
+    const tdBtn = document.createElement('td'); tdBtn.style.textAlign='center';
+    const btn=document.createElement('button'); btn.textContent='✕'; btn.className='danger'; btn.style.padding='4px 8px';
+    btn.addEventListener('click', ()=>{ deletePointById(d.id); });
+    tdBtn.appendChild(btn); tr.appendChild(tdBtn);
+    pointsTable.appendChild(tr);
+  });
+}
+
+/* =======================
+   Ellipses (MVEE) for each visible identifier
+======================= */
+function drawEllipsesAndTable(){
+  ellG.innerHTML=''; ellipseTable.innerHTML='';
+  if(!state.showEllipse) return;
+
+  // Group only the points currently visible to the user
+  const pts = visiblePoints();
+  const groups = new Map(); // "club|shot" -> points[]
+  for(const d of pts){
+    const key = `${d.club}|${d.shot}`;
+    if(!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(d);
+  }
+
+  const { sx, sy } = scales();
+
+  for(const [key, pts] of groups.entries()){
+    if(pts.length < 2) continue;
+
+    const subset = densestSubset(pts, state.thresholdPct);
+
+    const e = mvee(subset);
+    if (!e || !Number.isFinite(e.r1) || !Number.isFinite(e.r2)) {
+      console.warn('MVEE failed; skipping group', key);
+      continue;
+    }
+
+    // convert data ellipse radii along eigenvectors into pixel radii
+    const cxp = sx(e.cx), cyp = sy(e.cy);
+    const majorEndPx = sx(e.cx + e.vx * e.r1), majorEndPy = sy(e.cy + e.vy * e.r1);
+    const minorEndPx = sx(e.cx + e.ux * e.r2), minorEndPy = sy(e.cy + e.uy * e.r2);
+    const rxPx = Math.hypot(majorEndPx - cxp, majorEndPy - cyp);
+    const ryPx = Math.hypot(minorEndPx - cxp, minorEndPy - cyp);
+
+    // Rotation angle in screen space
+    const unitMajorEndPx = sx(e.cx + e.vx) - cxp;
+    const unitMajorEndPy = sy(e.cy + e.vy) - cyp;
+    const angleDeg = Math.atan2(unitMajorEndPy, unitMajorEndPx) * 180 / Math.PI;
+
+    const [club, shot] = key.split('|');
+    const color = getColorForShot(shot);
+
+    const ell = document.createElementNS('http://www.w3.org/2000/svg','ellipse');
+    ell.setAttribute('cx', 0); ell.setAttribute('cy', 0);
+    ell.setAttribute('rx', rxPx); ell.setAttribute('ry', ryPx);
+    ell.setAttribute('fill', color); ell.setAttribute('fill-opacity', 0.12);
+    ell.setAttribute('stroke', color); ell.setAttribute('stroke-width', 2);
+    ell.setAttribute('transform', `translate(${cxp},${cyp}) rotate(${angleDeg})`);
+    ell.addEventListener('mouseenter',(ev)=>{
+      tooltip.style.display='block';
+      tooltip.innerHTML =
+        `${key}<br>` +
+        `width: ${fmt(2*e.r1)}, height: ${fmt(2*e.r2)}<br>` +
+        `center: (${fmt(e.cx)}, ${fmt(e.cy)})<br>` +
+        `rotation: ${fmt(angleDeg)}°<br>` +
+        `pts used: ${subset.length}/${pts.length}`;
+      positionTooltip(ev);
+    });
+    ell.addEventListener('mousemove', positionTooltip);
+    ell.addEventListener('mouseleave', ()=>{ tooltip.style.display='none'; });
+    ellG.appendChild(ell);
+
+    // Table row (data-space)
+    const tr=document.createElement('tr');
+    const cells=[ key, fmt(2*e.r1), fmt(2*e.r2), fmt(e.cx), fmt(e.cy), fmt(angleDeg) ];
+    for(const c of cells){ const td=document.createElement('td'); td.textContent=c; tr.appendChild(td); }
+    ellipseTable.appendChild(tr);
+  }
+}
+
+/* =======================
+   CSV Import/Export (same as before)
+======================= */
+function detectDelimiter(text) {
+  const candidates = [',','\t',';','|'];
+  let best = ',', bestCount = 0;
+  for (const d of candidates) {
+    const c = (text.split('\n')[0] || '').split(d).length;
+    if (c > bestCount) { bestCount = c; best = d; }
+  }
+  return best;
+}
+function normalizeHeader(h) { return String(h || '').trim().toLowerCase().replace(/\s+/g,'_').replace(/[^\w]/g,''); }
+function parseCSV(text) {
+  const delim = detectDelimiter(text);
+  const lines = text.replace(/\r/g,'').split('\n').filter(l => l.trim().length);
+  if (!lines.length) return { rows: [], errors: ['Empty file'] };
+  const header = lines[0].split(delim).map(normalizeHeader);
+  const findIdx = key => header.indexOf(key);
+  const map = {};
+  map.x    = findIdx('x');    if (map.x    < 0) map.x    = findIdx('yards_offline');
+  map.y    = findIdx('y');    if (map.y    < 0) map.y    = findIdx('carry');
+  map.club = findIdx('club'); if (map.club < 0) map.club = findIdx('club_type');
+  map.shot = findIdx('shot'); if (map.shot < 0) map.shot = findIdx('shot_type');
+  const needed = ['x','y','club','shot']; const missing = needed.filter(k => map[k] < 0);
+  if (missing.length) return { rows: [], errors: [`Missing required column(s): ${missing.join(', ')}`] };
+  const rows = [], errors = [];
+  for (let i=1;i<lines.length;i++){
+    const raw = lines[i].split(delim);
+    const x = Number(raw[map.x]), y = Number(raw[map.y]);
+    const club = (raw[map.club] ?? 'N/A').toString().trim() || 'N/A';
+    const shot = (raw[map.shot] ?? 'N/A').toString().trim() || 'N/A';
+    if (!Number.isFinite(x) || !Number.isFinite(y)) { errors.push(`Row ${i+1}: non-numeric x/y`); continue; }
+    rows.push({ x, y, club, shot });
+  }
+  return { rows, errors };
+}
+function importRows(rows, { replace=false } = {}) {
+  if (replace) data.length = 0;
+  for (const r of rows) data.push({ id: nextId++, x:r.x, y:r.y, club:r.club, shot:r.shot, tag: tagOf(r.club, r.shot) });
+  renderAll();
+}
+function exportCSV() {
+  const header = 'x,y,club,shot\n';
+  const body = data.map(d => [d.x, d.y, d.club, d.shot].join(',')).join('\n');
+  const blob = new Blob([header + body], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'points_export.csv';
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+function setImportStatus(msg, isError=false) {
+  const el = document.getElementById('importStatus'); if (!el) return;
+  el.style.color = isError ? '#fca5a5' : 'var(--muted)'; el.textContent = msg;
+}
+
+/* =======================
+   Render
+======================= */
+function renderAll(){
+  drawGridAndAxes();
+  updateLegends();
+  rebuildFilters();
+  drawPoints();
+  drawEllipsesAndTable();
+  rebuildPointsTable();
+}
+
+/* =======================
+   Events
+======================= */
+document.getElementById('importFileBtn').addEventListener('click', () => {
+  const fileInput = document.getElementById('csvFile');
+  const replace = document.getElementById('replacePoints').checked;
+  const file = fileInput.files && fileInput.files[0];
+  if (!file) { alert('Choose a CSV file first.'); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const { rows, errors } = parseCSV(reader.result);
+    if (rows.length) {
+      importRows(rows, { replace });
+      setImportStatus(`Imported ${rows.length} row(s). ${errors.length ? ' (Skipped '+errors.length+' invalid row(s))' : ''}`);
+    } else {
+      setImportStatus(errors.join('; ') || 'No rows parsed.', true);
+    }
+  };
+  reader.readAsText(file);
+});
+document.getElementById('importPasteBtn').addEventListener('click', () => {
+  const txt = document.getElementById('csvPaste').value || '';
+  const replace = document.getElementById('replacePoints').checked;
+  const { rows, errors } = parseCSV(txt);
+  if (rows.length) {
+    importRows(rows, { replace });
+    setImportStatus(`Imported ${rows.length} row(s). ${errors.length ? ' (Skipped '+errors.length+' invalid row(s))' : ''}`);
+  } else {
+    setImportStatus(errors.join('; ') || 'No rows parsed.', true);
+  }
+});
+document.getElementById('exportBtn').addEventListener('click', exportCSV);
+
+// Drag & drop onto plot
+const ddTarget = document.getElementById('svgWrap');
+['dragenter','dragover','dragleave','drop'].forEach(evName => {
+  ddTarget.addEventListener(evName, (e) => { e.preventDefault(); e.stopPropagation(); });
+});
+ddTarget.addEventListener('drop', (e) => {
+  const file = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!file) return;
+  if (!/\.csv$/i.test(file.name) && !/^text\/(csv|plain)/.test(file.type || '')) {
+    setImportStatus('Dropped file is not CSV/plain text.', true); return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const { rows, errors } = parseCSV(reader.result);
+    if (rows.length) {
+      importRows(rows, { replace: false });
+      setImportStatus(`Imported ${rows.length} row(s) via drag & drop. ${errors.length ? ' (Skipped '+errors.length+' invalid row(s))' : ''}`);
+    } else {
+      setImportStatus(errors.join('; ') || 'No rows parsed.', true);
+    }
+  };
+  reader.readAsText(file);
+});
+
+submitBtn.addEventListener('click', ()=>{
+  const y = Number(yInput.value);
+  const x = Number(xInput.value);
+  const club = (clubInput.value || 'N/A').trim() || 'N/A';
+  const shot = (shotInput.value || 'N/A').trim() || 'N/A';
+  if(!Number.isFinite(x) || !Number.isFinite(y)){ alert('Please enter numeric values for x and y.'); return; }
+  data.push({ id: nextId++, x, y, club, shot, tag: tagOf(club, shot) });
+  renderAll();
+});
+function deletePointById(id){
+  const idx = data.findIndex(d=>d.id===id);
+  if(idx>=0){ data.splice(idx,1); renderAll(); }
+}
+clearAllBtn.addEventListener('click', ()=>{
+  if(confirm('Delete ALL points? This cannot be undone.')){
+    data.length = 0; renderAll();
+  }
+});
+
+function onFilterChange(){
+  normalizeMultiSelect(clubFilterEl);
+  normalizeMultiSelect(shotFilterEl);
+  state.clubFilter = new Set(Array.from(clubFilterEl.selectedOptions).map(o=>o.value));
+  state.shotFilter = new Set(Array.from(shotFilterEl.selectedOptions).map(o=>o.value));
+  drawPoints();           // reflect point visibility if enabled
+  drawEllipsesAndTable(); // ellipses only for visible points
+}
+clubFilterEl.addEventListener('change', onFilterChange);
+shotFilterEl.addEventListener('change', onFilterChange);
+
+applyToPointsCb.addEventListener('change', ()=>{
+  state.applyToPoints = applyToPointsCb.checked;
+  drawPoints();
+  drawEllipsesAndTable();
+});
+showEllipseCb.addEventListener('change', ()=>{
+  state.showEllipse = showEllipseCb.checked;
+  drawEllipsesAndTable();
+});
+thresholdInput.addEventListener('change', ()=>{
+  const v = parseFloat(thresholdInput.value); if(!Number.isFinite(v)) return;
+  state.thresholdPct = Math.max(50, Math.min(100, v)); thresholdInput.value = state.thresholdPct;
+});
+redrawBtn.addEventListener('click', ()=>{
+  drawGridAndAxes(); drawEllipsesAndTable();
+});
+window.addEventListener('resize', ()=>{ drawGridAndAxes(); });
+
+/* =======================
+   Boot (demo data)
+======================= */
+(function init(){
+  renderAll();
+  const demo = [
+    {x:-8, y:158, club:'7i', shot:'Stock'},
+    {x:-3, y:162, club:'7i', shot:'Stock'},
+    {x: 5, y:155, club:'7i', shot:'Stock'},
+    {x: 1, y:165, club:'7i', shot:'Stock'},
+    {x:-1, y:149, club:'7i', shot:'Stock'},
+    {x:10, y:170, club:'7i', shot:'Punch'},
+    {x:12, y:168, club:'7i', shot:'Punch'},
+    {x: 7, y:166, club:'7i', shot:'Punch'},
+    {x:14, y:171, club:'7i', shot:'Punch'},
+    {x:-6, y:195, club:'5i', shot:'Stock'},
+    {x: 3, y:188, club:'5i', shot:'Stock'},
+    {x:-2, y:192, club:'5i', shot:'Stock'},
+  ];
+  for(const d of demo){ data.push({ id: nextId++, ...d, tag: tagOf(d.club,d.shot) }); }
+  renderAll();
+})();
+</script>
+</body>
+</html>
