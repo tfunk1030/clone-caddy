@@ -60,6 +60,41 @@ npm run lint
 
 ---
 
+## Deploy
+
+The app is ready to deploy to **Vercel** as-is: the frontend builds to static
+files and the API runs as serverless functions in `api/` (no servers to manage,
+no API keys to configure).
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ftfunk1030%2Fclone-caddy)
+
+**One-click:** use the button above (imports this repo into Vercel).
+
+**CLI:**
+
+```bash
+npm i -g vercel
+vercel            # preview deploy
+vercel --prod     # production deploy
+```
+
+Vercel auto-detects the config from `vercel.json`:
+
+| | |
+| --- | --- |
+| Framework | Vite |
+| Build | `vite build` → `dist/` |
+| Functions | `api/*.js` → `/api/*` (Node serverless) |
+| Env vars | **none required** — the API is keyless |
+
+The same code runs locally (`server/index.js` mounts the `api/` handlers on
+Express) and on Vercel (each `api/*.js` is a function) via the shared
+`server/lib.js`. Any host with static + Node-function support (Netlify, Cloudflare
+Pages + Functions) works the same way.
+
+> The bundled Cesium Ion token in the deployed demo may be rate-limited — add your
+> own under **Settings** in the app (stored in your browser).
+
 ## API
 
 A small, **keyless** Node/Express service (`server/index.js`) adds the
@@ -102,7 +137,11 @@ The carry adjustment uses standard rules of thumb (≈2% per 1000 ft of altitude
 │       ├── js/                #   performanceManager, courseDataManager, etc.
 │       ├── short_game_modifiers.json
 │       └── *.csv
-├── server/index.js            # Keyless API: conditions, geocode, course, health
+├── api/                       # Vercel serverless functions (health, geocode, weather, conditions, course)
+├── server/
+│   ├── lib.js                 # Shared API core (used by api/ and the dev server)
+│   └── index.js               # Local dev: Express mounting the api/ handlers
+├── vercel.json
 ├── scripts/
 │   ├── dev.mjs                # Runs web + API together
 │   └── check-structure.mjs

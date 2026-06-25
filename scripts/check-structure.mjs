@@ -19,14 +19,15 @@ function mustExist(rel) {
 console.log('AI Caddie structure check\n');
 
 ['index.html', 'src/main.js', 'src/style.css', 'package.json', 'vite.config.js',
- 'server/index.js', 'scripts/dev.mjs'].forEach(mustExist);
+ 'server/index.js', 'server/lib.js', 'scripts/dev.mjs', 'vercel.json',
+ 'api/health.js', 'api/geocode.js', 'api/weather.js', 'api/conditions.js', 'api/course.js'].forEach(mustExist);
 
-// API wiring: shell must call the conditions endpoint, server must expose it.
+// API wiring: each Vercel function must exist, and the shell must call conditions.
 const mainJs = readFileSync(resolve(root, 'src/main.js'), 'utf8');
-const serverJs = readFileSync(resolve(root, 'server/index.js'), 'utf8');
-for (const route of ['/api/health', '/api/geocode', '/api/conditions', '/api/course']) {
-  if (serverJs.includes(`'${route}'`)) ok(`API route ${route}`);
-  else errors.push(`server does not define ${route}`);
+for (const fn of ['health', 'geocode', 'weather', 'conditions', 'course']) {
+  const p = resolve(root, 'api', `${fn}.js`);
+  if (existsSync(p) && readFileSync(p, 'utf8').includes('export default')) ok(`api/${fn}.js handler`);
+  else errors.push(`api/${fn}.js missing or has no default export`);
 }
 if (mainJs.includes('/api/conditions')) ok('shell calls /api/conditions');
 else errors.push('shell does not call /api/conditions');
