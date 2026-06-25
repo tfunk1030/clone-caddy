@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { Search, MapPin, Layers, AlertTriangle, Flag } from 'lucide-react';
@@ -8,6 +8,10 @@ import { Input } from '@/components/ui/input';
 import { MAPBOX_TOKEN, isMapboxConfigured, MAP_STYLE } from '@/lib/mapbox';
 import { toGeoJSON, colorMatchExpression, KIND_COLORS } from '@/lib/overpass';
 import { extractHoles, courseSummary, type Hole } from '@/lib/holes';
+import { buildHoleModel } from '@/lib/holeStrategy';
+import { optimizeAim } from '@/lib/shotModel';
+import { GreenMap } from '@/components/GreenMap';
+import { useProfile } from '@/context/ProfileContext';
 
 type Course = { name: string; lat: number; lon: number };
 
@@ -20,7 +24,15 @@ export default function CourseNavigation() {
   const [status, setStatus] = useState('');
   const [legend, setLegend] = useState<Record<string, number>>({});
   const [holes, setHoles] = useState<Hole[]>([]);
-  const [selectedHole, setSelectedHole] = useState<number | null>(null);
+  const [elements, setElements] = useState<any[]>([]);
+  const [selectedHole, setSelectedHole] = useState<Hole | null>(null);
+  const { profile } = useProfile();
+
+  const strategy = useMemo(() => (selectedHole ? buildHoleModel(selectedHole, elements) : null), [selectedHole, elements]);
+  const opt = useMemo(
+    () => (strategy ? optimizeAim(profile.offlineSD, profile.depthSD, strategy.model, 500) : null),
+    [strategy, profile.offlineSD, profile.depthSD],
+  );
 
   // Init map once.
   useEffect(() => {
@@ -93,6 +105,7 @@ export default function CourseNavigation() {
       const src = map?.getSource('course') as mapboxgl.GeoJSONSource | undefined;
       if (src) src.setData(fc as any);
       setLegend(data.byType || {});
+      setElements(data.elements || []);
       const hs = extractHoles(data.elements || []);
       setHoles(hs);
       setSelectedHole(null);
@@ -103,7 +116,7 @@ export default function CourseNavigation() {
   };
 
   const selectHole = (h: Hole) => {
-    setSelectedHole(h.number);
+    setSelectedHole(h);
     const map = mapRef.current;
     if (!map) return;
     const hi = map.getSource('hole-hi') as mapboxgl.GeoJSONSource | undefined;
@@ -167,7 +180,7 @@ export default function CourseNavigation() {
               {holes.map((h, i) => (
                 <button key={i} onClick={() => selectHole(h)}
                   className={`flex w-full items-center justify-between rounded-md border px-2.5 py-1.5 text-left text-sm transition-colors ${
-                    selectedHole === h.number ? 'border-primary bg-primary/15 text-primary' : 'border-border hover:bg-muted'
+                    selectedHole === h ? 'border-primary bg-primary/15 text-primary' : 'border-border hover:bg-muted'
                   }`}>
                   <span className="flex items-center gap-2">
                     <span className="inline-grid h-5 w-5 place-items-center rounded bg-muted text-[11px] font-bold">{h.number}</span>
@@ -181,21 +194,61 @@ export default function CourseNavigation() {
         )}
       </div>
 
-      {isMapboxConfigured ? (
-        <div ref={mapEl} className="min-h-[320px] flex-1" />
-      ) : (
-        <div className="grid min-h-[320px] flex-1 place-items-center p-6">
-          <Card className="max-w-lg">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-primary" /> 3D map needs a Mapbox token</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm text-muted-foreground">
-              <p>Course search and the hole list work without it — but the 3D satellite map needs <code className="rounded bg-muted px-1">VITE_MAPBOX_TOKEN</code> set in your environment (Vercel project env or local <code className="rounded bg-muted px-1">.env</code>), then redeploy.</p>
-              <p>Get a free token at <a className="text-primary underline" href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noopener">account.mapbox.com</a>.</p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+      <div className="relative min-h-[340px] flex-1">
+        {isMapboxConfigured ? (
+          <div ref={mapEl} className="absolute inset-0" />
+        ) : (
+          <div className="grid h-full place-items-center p-6">
+            <Card className="max-w-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-primary" /> 3D map needs a Mapbox token</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-muted-foreground">
+                <p>Course search, the hole list, and per-hole strategy all work without it — but the 3D satellite map needs <code className="rounded bg-muted px-1">VITE_MAPBOX_TOKEN</code> set in your environment (Vercel project env or local <code className="rounded bg-muted px-1">.env</code>), then redeploy.</p>
+                <p>Get a free token at <a className="text-primary underline" href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noopener">account.mapbox.com</a>.</p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {selectedHole && strategy && opt && (
+          <div className="absolute bottom-3 left-3 right-3 mx-auto max-w-md rounded-lg border border-border bg-card/95 p-4 shadow-lg backdrop-blur md:right-auto md:w-[340px]">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="font-display text-lg font-bold">
+                  Hole {selectedHole.number}{selectedHole.par ? ` · par ${selectedHole.par}` : ''} · {selectedHole.yards} yd
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {strategy.model.greenRadius} yd green ·{' '}
+                  {strategy.bunkers ? `${strategy.bunkers} greenside bunker${strategy.bunkers > 1 ? 's' : ''}` : 'no bunkers'}
+                  {strategy.water ? ` · water ${strategy.water}` : ''}
+                </div>
+              </div>
+              <button onClick={() => setSelectedHole(null)} className="text-muted-foreground hover:text-foreground">✕</button>
+            </div>
+            <div className="mt-3 grid grid-cols-[120px_1fr] gap-3">
+              <div className="aspect-square"><GreenMap model={strategy.model} aim={opt.best} landings={opt.result.landings} span={Math.max(28, strategy.model.greenRadius + 14)} /></div>
+              <div className="space-y-1.5 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Aim </span>
+                  <span className="font-semibold">
+                    {Math.abs(opt.best.x) < 2 && Math.abs(opt.best.y) < 2
+                      ? 'at the pin'
+                      : `${opt.best.x ? `${Math.abs(opt.best.x)} ${opt.best.x > 0 ? 'R' : 'L'}` : ''}${opt.best.x && opt.best.y ? ', ' : ''}${opt.best.y ? `${Math.abs(opt.best.y)} ${opt.best.y > 0 ? 'long' : 'short'}` : ''}`}
+                  </span>
+                </div>
+                <div><span className="text-muted-foreground">ES remaining </span><span className="font-bold text-primary">{opt.bestES.toFixed(2)}</span></div>
+                <div className="flex flex-wrap gap-x-2 text-xs text-muted-foreground">
+                  {(['green', 'rough', 'sand', 'water'] as const).map((o) => (
+                    <span key={o} title={o}>{o[0].toUpperCase()} {Math.round(opt.result.breakdown[o] * 100)}%</span>
+                  ))}
+                </div>
+                <div className="pt-1 text-[11px] text-muted-foreground">Your σ {profile.offlineSD}/{profile.depthSD} yd · pin assumed center</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
