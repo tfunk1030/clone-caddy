@@ -40,12 +40,13 @@ export type Hole = {
   yards: number;
   path: [number, number][];        // [lon, lat]
   green: { lon: number; lat: number; radiusYds: number } | null;
+  greenPath: [number, number][];   // green outline [lon, lat]
 };
 
 export function extractHoles(elements: El[]): Hole[] {
   const greens = elements
     .filter((e) => e.tags?.golf === 'green' && e.geometry && e.geometry.length >= 3)
-    .map((e) => ({ c: centroid(e.geometry!), r: radiusYds(e.geometry!, centroid(e.geometry!)) }));
+    .map((e) => ({ c: centroid(e.geometry!), r: radiusYds(e.geometry!, centroid(e.geometry!)), geom: e.geometry! }));
 
   const holeWays = elements.filter((e) => e.tags?.golf === 'hole' && e.geometry && e.geometry.length >= 2);
 
@@ -56,6 +57,7 @@ export function extractHoles(elements: El[]): Hole[] {
     // Green nearest the hole's end point.
     const end = geom[geom.length - 1];
     let green: Hole['green'] = null;
+    let greenPath: [number, number][] = [];
     if (greens.length) {
       let best = greens[0], bestD = Infinity;
       for (const g of greens) {
@@ -63,6 +65,7 @@ export function extractHoles(elements: El[]): Hole[] {
         if (d < bestD) { bestD = d; best = g; }
       }
       green = { lon: best.c.lon, lat: best.c.lat, radiusYds: Math.round(best.r) };
+      greenPath = best.geom.map((p) => [p.lon, p.lat] as [number, number]);
     }
     return {
       number: Number.isFinite(num) ? num : i + 1,
@@ -70,6 +73,7 @@ export function extractHoles(elements: El[]): Hole[] {
       yards: Math.round(pathLengthM(geom) * M_TO_YD),
       path: geom.map((p) => [p.lon, p.lat] as [number, number]),
       green,
+      greenPath,
     };
   });
 

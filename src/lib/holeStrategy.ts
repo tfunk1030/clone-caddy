@@ -38,6 +38,29 @@ function toApproachFrame(c: { lat: number; lon: number }, p: { lat: number; lon:
   };
 }
 
+// Approach heading (radians) for a hole — tee end of the centerline -> green.
+export function approachHeading(hole: Hole): number {
+  if (!hole.green) return 0;
+  const green = { lat: hole.green.lat, lon: hole.green.lon };
+  const start = hole.path.length ? { lon: hole.path[0][0], lat: hole.path[0][1] } : green;
+  return bearing(start, green);
+}
+
+// Approach-frame offset (yards, x=right/y=long) of a lon/lat relative to a center.
+export function lonLatToOffset(center: { lat: number; lon: number }, lonlat: [number, number], θ: number) {
+  return toApproachFrame(center, { lon: lonlat[0], lat: lonlat[1] }, θ);
+}
+
+// Inverse: an approach-frame offset (yards) back to [lon, lat].
+export function offsetToLonLat(center: { lat: number; lon: number }, offset: { x: number; y: number }, θ): [number, number] {
+  const eastYd = offset.x * Math.cos(θ) + offset.y * Math.sin(θ);
+  const northYd = -offset.x * Math.sin(θ) + offset.y * Math.cos(θ);
+  const eastM = eastYd / M_TO_YD, northM = northYd / M_TO_YD;
+  const dLat = northM / 111320;
+  const dLon = eastM / (111320 * Math.cos(toRad(center.lat)));
+  return [center.lon + dLon, center.lat + dLat];
+}
+
 export type HoleStrategy = {
   model: GreenModel;
   bunkers: number;

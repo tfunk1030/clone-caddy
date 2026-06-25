@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { MAPBOX_TOKEN, isMapboxConfigured, MAP_STYLE } from '@/lib/mapbox';
 import { toGeoJSON, colorMatchExpression, KIND_COLORS } from '@/lib/overpass';
 import { extractHoles, courseSummary, type Hole } from '@/lib/holes';
-import { buildHoleModel } from '@/lib/holeStrategy';
+import { buildHoleModel, approachHeading, offsetToLonLat, lonLatToOffset } from '@/lib/holeStrategy';
 import { optimizeAim } from '@/lib/shotModel';
 import { GreenMap } from '@/components/GreenMap';
 import { useProfile } from '@/context/ProfileContext';
@@ -18,6 +18,7 @@ type Course = { name: string; lat: number; lon: number };
 export default function CourseNavigation() {
   const mapEl = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
+  const markerRef = useRef<mapboxgl.Marker | null>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Course[]>([]);
   const [active, setActive] = useState<Course | null>(null);
@@ -28,25 +29,34 @@ export default function CourseNavigation() {
   const [selectedHole, setSelectedHole] = useState<Hole | null>(null);
   const { profile } = useProfile();
 
-  // Per-hole pin sheet (pin position relative to green center), persisted.
-  const [pinSheet, setPinSheet] = useState<Record<string, string>>(() => {
+  // Per-hole pin sheet — pin offset (approach-frame yards) relative to green
+  // center, set via presets or by dragging the pin on the map. Persisted.
+  const [pinSheet, setPinSheet] = useState<Record<string, { x: number; y: number }>>(() => {
     try { return JSON.parse(localStorage.getItem('caddai.pinsheet') || '{}'); } catch { return {}; }
   });
   const holeKey = (h: Hole | null) => (h && active ? `${active.name.split(',')[0]}|${holes.indexOf(h)}` : '');
-  const pinPreset = pinSheet[holeKey(selectedHole)] || 'Center';
-  const setPin = (preset: string) => {
+  const pinOffset = (selectedHole && pinSheet[holeKey(selectedHole)]) || { x: 0, y: 0 };
+  const setPin = (offset: { x: number; y: number }) => {
     const key = holeKey(selectedHole);
+    if (!key) return;
     setPinSheet((prev) => {
-      const next = { ...prev, [key]: preset };
+      const next = { ...prev, [key]: offset };
       try { localStorage.setItem('caddai.pinsheet', JSON.stringify(next)); } catch {}
       return next;
     });
   };
-  const pinOffset = (() => {
-    const R = selectedHole?.green?.radiusYds || 14;
-    const f = 0.6 * R;
-    return { Center: { x: 0, y: 0 }, Front: { x: 0, y: -f }, Back: { x: 0, y: f }, Left: { x: -f, y: 0 }, Right: { x: f, y: 0 } }[pinPreset] || { x: 0, y: 0 };
+  const presetOffset = (name: string) => {
+    const f = 0.6 * (selectedHole?.green?.radiusYds || 14);
+    return ({ Center: { x: 0, y: 0 }, Front: { x: 0, y: -f }, Back: { x: 0, y: f }, Left: { x: -f, y: 0 }, Right: { x: f, y: 0 } } as Record<string, { x: number; y: number }>)[name];
+  };
+  const activePreset = (() => {
+    for (const n of ['Center', 'Front', 'Back', 'Left', 'Right']) {
+      const o = presetOffset(n);
+      if (Math.abs(o.x - pinOffset.x) < 1.5 && Math.abs(o.y - pinOffset.y) < 1.5) return n;
+    }
+    return 'Custom';
   })();
+  const heading = selectedHole ? approachHeading(selectedHole) : 0;
 
   const strategy = useMemo(
     () => (selectedHole ? buildHoleModel(selectedHole, elements, pinOffset) : null),
@@ -56,6 +66,51 @@ export default function CourseNavigation() {
     () => (strategy ? optimizeAim(profile.offlineSD, profile.depthSD, strategy.model, 500) : null),
     [strategy, profile.offlineSD, profile.depthSD],
   );
+
+  // Draggable pin marker + green outline for the selected hole.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isMapboxConfigured || !selectedHole?.green) return;
+    const green = { lat: selectedHole.green.lat, lon: selectedHole.green.lon };
+
+    const drawGreen = () => {
+      const src = map.getSource('green-hi') as mapboxgl.GeoJSONSource | undefined;
+      if (src && selectedHole.greenPath?.length)
+        src.setData({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [selectedHole.greenPath] } } as any);
+    };
+    if (map.isStyleLoaded()) drawGreen(); else map.once('idle', drawGreen);
+
+    const el = document.createElement('div');
+    Object.assign(el.style, {
+      width: '16px', height: '16px', borderRadius: '50%', background: '#ef4444',
+      border: '2px solid #fff', boxShadow: '0 0 0 3px rgba(239,68,68,.35)', cursor: 'grab',
+    });
+    el.title = 'Drag to set the pin';
+    const marker = new mapboxgl.Marker({ element: el, draggable: true })
+      .setLngLat(offsetToLonLat(green, pinOffset, heading))
+      .addTo(map);
+    marker.on('dragend', () => {
+      const ll = marker.getLngLat();
+      const off = lonLatToOffset(green, [ll.lng, ll.lat], heading);
+      setPin({ x: Math.round(off.x), y: Math.round(off.y) });
+    });
+    markerRef.current = marker;
+
+    return () => {
+      marker.remove();
+      markerRef.current = null;
+      const src = map.getSource('green-hi') as mapboxgl.GeoJSONSource | undefined;
+      if (src) src.setData({ type: 'FeatureCollection', features: [] } as any);
+    };
+    // Recreate only when the hole (or its heading) changes, not on every drag.
+  }, [selectedHole, heading]);
+
+  // Reposition the marker when the pin offset changes via presets.
+  useEffect(() => {
+    const marker = markerRef.current;
+    if (!marker || !selectedHole?.green) return;
+    marker.setLngLat(offsetToLonLat({ lat: selectedHole.green.lat, lon: selectedHole.green.lon }, pinOffset, heading));
+  }, [pinOffset.x, pinOffset.y]);
 
   // Init map once.
   useEffect(() => {
@@ -88,6 +143,10 @@ export default function CourseNavigation() {
         id: 'hole-hi-line', type: 'line', source: 'hole-hi',
         paint: { 'line-color': '#ffffff', 'line-width': 3, 'line-dasharray': [2, 1] },
       });
+      // Selected hole's green outline.
+      map.addSource('green-hi', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({ id: 'green-hi-fill', type: 'fill', source: 'green-hi', paint: { 'fill-color': '#37c871', 'fill-opacity': 0.22 } });
+      map.addLayer({ id: 'green-hi-line', type: 'line', source: 'green-hi', paint: { 'line-color': '#37c871', 'line-width': 2 } });
     });
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };
@@ -270,14 +329,20 @@ export default function CourseNavigation() {
               </div>
             </div>
             <div className="mt-3 border-t border-border pt-3">
-              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Pin sheet</div>
+              <div className="mb-1.5 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <span>Pin sheet</span>
+                {isMapboxConfigured && <span className="font-normal normal-case">drag the red pin on the map</span>}
+              </div>
               <div className="flex flex-wrap gap-1.5">
                 {['Front', 'Left', 'Center', 'Right', 'Back'].map((p) => (
-                  <button key={p} onClick={() => setPin(p)}
+                  <button key={p} onClick={() => setPin(presetOffset(p))}
                     className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
-                      pinPreset === p ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:text-foreground'
+                      activePreset === p ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:text-foreground'
                     }`}>{p}</button>
                 ))}
+                {activePreset === 'Custom' && (
+                  <span className="rounded-full border border-primary bg-primary/15 px-2.5 py-0.5 text-xs text-primary">Custom</span>
+                )}
               </div>
             </div>
           </div>
