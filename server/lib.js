@@ -81,6 +81,8 @@ export async function geocode(query, limit = 5) {
     osm_id: r.osm_id,
     osm_type: r.osm_type,
     importance: r.importance,
+    // Nominatim bbox: [minLat, maxLat, minLon, maxLon] (strings).
+    boundingbox: Array.isArray(r.boundingbox) ? r.boundingbox.map(Number) : null,
   }));
 }
 
@@ -127,19 +129,52 @@ export async function overpass(ql) {
   }
   throw lastErr || new Error('All Overpass mirrors failed');
 }
-export async function courseFeatures(lat, lon, radius) {
+function summarize(data, center, scope, radius) {
+  const elements = data.elements || [];
+  const byType = elements.reduce((m, el) => {
+    const kind = el.tags?.golf || 'other';
+    m[kind] = (m[kind] || 0) + 1;
+    return m;
+  }, {});
+  return { center, scope, radius, count: elements.length, byType, elements };
+}
+
+// Course features, scoped to the named course's own polygon when we can resolve
+// it (Overpass map_to_area on the matched OSM way/relation) — much cleaner than
+// a blind radius, which pulls in neighbouring courses. Falls back to a radius
+// query, then a bbox query.
+export async function courseFeatures({ lat, lon, radius, osmType, osmId, bbox }) {
+  // 1) Scope to the matched course polygon.
+  if (osmId && (osmType === 'way' || osmType === 'relation')) {
+    const sel = osmType === 'relation' ? `relation(${osmId})` : `way(${osmId})`;
+    const ql = `[out:json][timeout:25];${sel};map_to_area->.a;(
+      way["golf"](area.a);
+      relation["golf"](area.a);
+    );out geom;`;
+    try {
+      const data = await cached(`ova:${osmType}:${osmId}`, 6 * 3600e3, () => overpass(ql));
+      if ((data.elements || []).length >= 20) return summarize(data, { lat, lon }, 'course', null);
+    } catch { /* fall through */ }
+  }
+  // 2) Bounding box (when provided).
+  if (Array.isArray(bbox) && bbox.length === 4 && bbox.every((n) => Number.isFinite(n))) {
+    const [minLat, maxLat, minLon, maxLon] = bbox;
+    const pad = 0.0006;
+    const box = `${minLat - pad},${minLon - pad},${maxLat + pad},${maxLon + pad}`;
+    const ql = `[out:json][timeout:25];(way["golf"](${box});relation["golf"](${box}););out geom;`;
+    try {
+      const data = await cached(`ovb:${box}`, 6 * 3600e3, () => overpass(ql));
+      if ((data.elements || []).length >= 20) return summarize(data, { lat, lon }, 'course', null);
+    } catch { /* fall through */ }
+  }
+  // 3) Radius fallback.
   const r = Math.min(radius || 1500, 5000);
   const ql = `[out:json][timeout:25];(
     way["golf"](around:${r},${lat},${lon});
     relation["golf"](around:${r},${lat},${lon});
   );out geom;`;
   const data = await cached(`ov:${lat.toFixed(4)},${lon.toFixed(4)},${r}`, 6 * 3600e3, () => overpass(ql));
-  const byType = (data.elements || []).reduce((m, el) => {
-    const kind = el.tags?.golf || 'other';
-    m[kind] = (m[kind] || 0) + 1;
-    return m;
-  }, {});
-  return { center: { lat, lon }, radius: r, count: (data.elements || []).length, byType, elements: data.elements || [] };
+  return summarize(data, { lat, lon }, 'radius', r);
 }
 
 // --- helpers ---
@@ -171,10 +206,14 @@ export function carryAdjustment({ elevationM, tempF }) {
 // Resolve a {q} or {lat,lon} input to coordinates (+ resolved place name).
 export async function resolveLocation(req) {
   let lat = parseFloat(q(req, 'lat')), lon = parseFloat(q(req, 'lon'));
-  if (!Number.isNaN(lat) && !Number.isNaN(lon)) return { lat, lon, name: null };
+  // Optional explicit bbox: "minLat,maxLat,minLon,maxLon".
+  const bboxParam = (q(req, 'bbox') || '').toString();
+  const bbox = bboxParam ? bboxParam.split(',').map(Number) : null;
+  const osmType = q(req, 'osm_type'), osmId = q(req, 'osm_id');
+  if (!Number.isNaN(lat) && !Number.isNaN(lon)) return { lat, lon, name: null, bbox, osmType, osmId };
   const query = (q(req, 'q') || '').toString().trim();
   if (!query) { const e = new Error('provide q (place name) or lat & lon'); e.status = 400; throw e; }
   const hits = await geocode(query, 1);
   if (!hits.length) { const e = new Error(`No location found for "${query}"`); e.status = 404; throw e; }
-  return { lat: hits[0].lat, lon: hits[0].lon, name: hits[0].name };
+  return { lat: hits[0].lat, lon: hits[0].lon, name: hits[0].name, bbox: bbox || hits[0].boundingbox, osmType: hits[0].osm_type, osmId: hits[0].osm_id };
 }

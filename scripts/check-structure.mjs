@@ -22,7 +22,8 @@ console.log('CADD-AI structure check\n');
 ['Login', 'Dashboard', 'CourseNavigation', 'Dispersion', 'ExpectedStrokes', 'Conditions', 'Forecast', 'Rankings', 'Settings']
   .forEach((p) => mustExist(`src/pages/${p}.tsx`));
 ['src/lib/expectedStrokes.ts', 'src/lib/shotModel.ts', 'src/components/GreenMap.tsx',
- 'src/lib/holes.ts', 'src/lib/holeStrategy.ts', 'src/context/ProfileContext.tsx'].forEach(mustExist);
+ 'src/lib/holes.ts', 'src/lib/holeStrategy.ts', 'src/lib/teeStrategy.ts',
+ 'src/context/ProfileContext.tsx'].forEach(mustExist);
 
 for (const fn of ['health', 'geocode', 'weather', 'conditions', 'course']) {
   const p = resolve(root, 'api', `${fn}.js`);

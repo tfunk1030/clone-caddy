@@ -9,11 +9,12 @@ import { MAPBOX_TOKEN, isMapboxConfigured, MAP_STYLE } from '@/lib/mapbox';
 import { toGeoJSON, colorMatchExpression, KIND_COLORS } from '@/lib/overpass';
 import { extractHoles, courseSummary, type Hole } from '@/lib/holes';
 import { buildHoleModel, approachHeading, offsetToLonLat, lonLatToOffset } from '@/lib/holeStrategy';
+import { teeStrategies } from '@/lib/teeStrategy';
 import { optimizeAim } from '@/lib/shotModel';
 import { GreenMap } from '@/components/GreenMap';
 import { useProfile } from '@/context/ProfileContext';
 
-type Course = { name: string; lat: number; lon: number };
+type Course = { name: string; lat: number; lon: number; osm_type?: string; osm_id?: number };
 
 export default function CourseNavigation() {
   const mapEl = useRef<HTMLDivElement>(null);
@@ -66,6 +67,25 @@ export default function CourseNavigation() {
     () => (strategy ? optimizeAim(profile.offlineSD, profile.depthSD, strategy.model, 500) : null),
     [strategy, profile.offlineSD, profile.depthSD],
   );
+  const tee = useMemo(
+    () => (selectedHole ? teeStrategies(selectedHole, elements, profile.drivingDistance) : null),
+    [selectedHole, elements, profile.drivingDistance],
+  );
+
+  // Draw the tee-shot lines on the map.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isMapboxConfigured) return;
+    const src = map.getSource('tee-lines') as mapboxgl.GeoJSONSource | undefined;
+    if (!src) return;
+    if (!selectedHole || !tee) { src.setData({ type: 'FeatureCollection', features: [] } as any); return; }
+    const teePt = selectedHole.path[0];
+    const features = tee.lines.flatMap((L) => [
+      { type: 'Feature', properties: { kind: L.label }, geometry: { type: 'LineString', coordinates: [teePt, L.target] } },
+      { type: 'Feature', properties: { kind: L.label }, geometry: { type: 'Point', coordinates: L.target } },
+    ]);
+    src.setData({ type: 'FeatureCollection', features } as any);
+  }, [selectedHole, tee]);
 
   // Draggable pin marker + green outline for the selected hole.
   useEffect(() => {
@@ -147,6 +167,21 @@ export default function CourseNavigation() {
       map.addSource('green-hi', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       map.addLayer({ id: 'green-hi-fill', type: 'fill', source: 'green-hi', paint: { 'fill-color': '#37c871', 'fill-opacity': 0.22 } });
       map.addLayer({ id: 'green-hi-line', type: 'line', source: 'green-hi', paint: { 'line-color': '#37c871', 'line-width': 2 } });
+      // Tee-shot lines (aggressive / optimal / conservative).
+      map.addSource('tee-lines', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({
+        id: 'tee-lines-line', type: 'line', source: 'tee-lines',
+        layout: { 'line-cap': 'round' },
+        paint: {
+          'line-width': 3.5,
+          'line-color': ['match', ['get', 'kind'], 'Aggressive', '#ef4444', 'Conservative', '#3b82f6', '#10d98a'],
+        },
+      });
+      map.addLayer({
+        id: 'tee-lines-end', type: 'circle', source: 'tee-lines',
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: { 'circle-radius': 5, 'circle-color': ['match', ['get', 'kind'], 'Aggressive', '#ef4444', 'Conservative', '#3b82f6', '#10d98a'], 'circle-stroke-width': 1.5, 'circle-stroke-color': '#fff' },
+      });
     });
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };
@@ -163,7 +198,7 @@ export default function CourseNavigation() {
       const golfRank = (x: any) =>
         (x.type === 'golf_course' ? 0 : x.category === 'leisure' ? 1 : /golf|links|country club/i.test(x.name) ? 2 : 3);
       const ranked = (data.results || [])
-        .map((x: any) => ({ name: x.name, lat: x.lat, lon: x.lon, type: x.type, category: x.category }))
+        .map((x: any) => ({ name: x.name, lat: x.lat, lon: x.lon, type: x.type, category: x.category, osm_type: x.osm_type, osm_id: x.osm_id }))
         .sort((a: any, b: any) => golfRank(a) - golfRank(b))
         .slice(0, 6);
       setResults(ranked);
@@ -181,7 +216,8 @@ export default function CourseNavigation() {
     if (map) map.flyTo({ center: [c.lon, c.lat], zoom: 15.5, pitch: 60, essential: true });
     setStatus('Loading course features…');
     try {
-      const r = await fetch(`/api/course?lat=${c.lat}&lon=${c.lon}&radius=1600`);
+      const osm = c.osm_type && c.osm_id ? `&osm_type=${c.osm_type}&osm_id=${c.osm_id}` : '';
+      const r = await fetch(`/api/course?lat=${c.lat}&lon=${c.lon}&radius=1600${osm}`);
       const data = await r.json();
       const fc = toGeoJSON(data.elements || []);
       const src = map?.getSource('course') as mapboxgl.GeoJSONSource | undefined;
@@ -203,7 +239,16 @@ export default function CourseNavigation() {
     if (!map) return;
     const hi = map.getSource('hole-hi') as mapboxgl.GeoJSONSource | undefined;
     if (hi) hi.setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: h.path } } as any);
-    if (h.green) map.flyTo({ center: [h.green.lon, h.green.lat], zoom: 16.8, pitch: 62, essential: true });
+    // Orient the camera straight down the hole (tee -> green) and frame it.
+    const headingDeg = (approachHeading(h) * 180) / Math.PI;
+    if (h.path.length >= 2) {
+      const bounds = new mapboxgl.LngLatBounds(h.path[0], h.path[0]);
+      h.path.forEach((c) => bounds.extend(c as [number, number]));
+      if (h.green) bounds.extend([h.green.lon, h.green.lat]);
+      map.fitBounds(bounds, { bearing: headingDeg, pitch: 60, padding: 90, maxZoom: 17.5, duration: 1300 });
+    } else if (h.green) {
+      map.flyTo({ center: [h.green.lon, h.green.lat], zoom: 16.8, bearing: headingDeg, pitch: 60, essential: true });
+    }
   };
 
   const summary = courseSummary(holes);
@@ -294,7 +339,7 @@ export default function CourseNavigation() {
         )}
 
         {selectedHole && strategy && opt && (
-          <div className="absolute bottom-3 left-3 right-3 mx-auto max-w-md rounded-lg border border-border bg-card/95 p-4 shadow-lg backdrop-blur md:right-auto md:w-[340px]">
+          <div className="absolute bottom-3 left-3 right-3 mx-auto flex max-h-[calc(100%-1.5rem)] max-w-md flex-col overflow-auto rounded-lg border border-border bg-card/95 p-4 shadow-lg backdrop-blur md:right-auto md:w-[340px]">
             <div className="flex items-start justify-between">
               <div>
                 <div className="font-display text-lg font-bold">
@@ -308,7 +353,26 @@ export default function CourseNavigation() {
               </div>
               <button onClick={() => setSelectedHole(null)} className="text-muted-foreground hover:text-foreground">✕</button>
             </div>
-            <div className="mt-3 grid grid-cols-[120px_1fr] gap-3">
+
+            {tee && selectedHole.par && selectedHole.par >= 4 && (
+              <div className="mt-3 border-t border-border pt-3">
+                <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Tee shot</div>
+                <div className="space-y-1">
+                  {tee.lines.map((L) => (
+                    <div key={L.label} className="flex items-center justify-between text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ background: L.label === 'Aggressive' ? '#ef4444' : L.label === 'Conservative' ? '#3b82f6' : '#10d98a' }} />
+                        {L.label}
+                      </span>
+                      <span className="tabular-nums text-muted-foreground">{L.carry} yd · {L.remainingYds} left · ES {L.es.toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Approach</div>
+            <div className="mt-1.5 grid grid-cols-[120px_1fr] gap-3">
               <div className="aspect-square"><GreenMap model={strategy.model} aim={opt.best} landings={opt.result.landings} span={Math.max(28, strategy.model.greenRadius + 14)} /></div>
               <div className="space-y-1.5 text-sm">
                 <div>
