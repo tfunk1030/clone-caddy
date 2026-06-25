@@ -5,6 +5,7 @@ import Login from '@/pages/Login';
 import Dashboard from '@/pages/Dashboard';
 import CourseNavigation from '@/pages/CourseNavigation';
 import Dispersion from '@/pages/Dispersion';
+import ExpectedStrokes from '@/pages/ExpectedStrokes';
 import Conditions from '@/pages/Conditions';
 import Forecast from '@/pages/Forecast';
 import Rankings from '@/pages/Rankings';
@@ -26,6 +27,7 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="course" element={<CourseNavigation />} />
             <Route path="dispersion" element={<Dispersion />} />
+            <Route path="expected-strokes" element={<ExpectedStrokes />} />
             <Route path="conditions" element={<Conditions />} />
             <Route path="forecast" element={<Forecast />} />
             <Route path="rankings" element={<Rankings />} />

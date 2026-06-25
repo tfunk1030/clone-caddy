@@ -19,8 +19,9 @@ console.log('CADD-AI structure check\n');
   'server/lib.js', 'server/index.js',
 ].forEach(mustExist);
 
-['Login', 'Dashboard', 'CourseNavigation', 'Dispersion', 'Conditions', 'Forecast', 'Rankings', 'Settings']
+['Login', 'Dashboard', 'CourseNavigation', 'Dispersion', 'ExpectedStrokes', 'Conditions', 'Forecast', 'Rankings', 'Settings']
   .forEach((p) => mustExist(`src/pages/${p}.tsx`));
+['src/lib/expectedStrokes.ts', 'src/lib/shotModel.ts', 'src/components/GreenMap.tsx'].forEach(mustExist);
 
 for (const fn of ['health', 'geocode', 'weather', 'conditions', 'course']) {
   const p = resolve(root, 'api', `${fn}.js`);
@@ -30,7 +31,7 @@ for (const fn of ['health', 'geocode', 'weather', 'conditions', 'course']) {
 
 // App wires each route.
 const app = readFileSync(resolve(root, 'src/App.tsx'), 'utf8');
-for (const r of ['course', 'dispersion', 'conditions', 'forecast', 'rankings', 'settings']) {
+for (const r of ['course', 'dispersion', 'expected-strokes', 'conditions', 'forecast', 'rankings', 'settings']) {
   if (app.includes(`path="${r}"`)) ok(`route /${r}`);
   else errors.push(`App.tsx missing route ${r}`);
 }
