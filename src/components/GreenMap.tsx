@@ -18,13 +18,14 @@ function esColor(t: number): string {
 
 // Top-down view. Pin at origin; x = lateral (right +), y = depth (long +).
 export function GreenMap({
-  model, aim, landings, span = 35, surface,
+  model, aim, landings, span = 35, surface, markers,
 }: {
   model: GreenModel;
   aim: { x: number; y: number };
   landings: SimResult['landings'];
   span?: number; // yards from center to edge
   surface?: { x: number; y: number; es: number }[]; // ES heatmap over the aim grid
+  markers?: { x: number; y: number; color: string; label: string }[]; // strategy aim points
 }) {
   const S = 360; // svg size px
   const c = S / 2;
@@ -74,7 +75,15 @@ export function GreenMap({
       {landings.map((p, i) => (
         <circle key={i} cx={X(p.x)} cy={Y(p.y)} r={2} fill={OUTCOME_COLOR[p.outcome]} fillOpacity={0.6} />
       ))}
-      {/* aim point */}
+      {/* strategy aim points (aggressive / optimal / safe) */}
+      {markers && markers.map((m, i) => (
+        <g key={`m${i}`}>
+          <circle cx={X(m.x)} cy={Y(m.y)} r={5} fill="none" stroke={m.color} strokeWidth={2} />
+          <circle cx={X(m.x)} cy={Y(m.y)} r={1.5} fill={m.color} />
+          <text x={X(m.x) + 7} y={Y(m.y) + 3} fill={m.color} fontSize={9} fontWeight={700}>{m.label}</text>
+        </g>
+      ))}
+      {/* focused aim crosshair */}
       <g>
         <line x1={X(aim.x) - 7} y1={Y(aim.y)} x2={X(aim.x) + 7} y2={Y(aim.y)} stroke="#fff" strokeWidth={1.5} />
         <line x1={X(aim.x)} y1={Y(aim.y) - 7} x2={X(aim.x)} y2={Y(aim.y) + 7} stroke="#fff" strokeWidth={1.5} />
