@@ -28,6 +28,7 @@ export default function CourseNavigation() {
   const [active, setActive] = useState<Course | null>(null);
   const [status, setStatus] = useState('');
   const [legend, setLegend] = useState<Record<string, number>>({});
+  const [threeD, setThreeD] = useState(true);
   const [holes, setHoles] = useState<Hole[]>([]);
   const [elements, setElements] = useState<any[]>([]);
   const [selectedHole, setSelectedHole] = useState<Hole | null>(null);
@@ -211,6 +212,17 @@ export default function CourseNavigation() {
     marker.setLngLat(offsetToLonLat({ lat: selectedHole.green.lat, lon: selectedHole.green.lon }, pinOffset, heading));
   }, [pinOffset.x, pinOffset.y]);
 
+  // 2D / 3D toggle: tilt the camera and switch terrain relief on/off.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isMapboxConfigured) return;
+    const apply = () => {
+      map.easeTo({ pitch: threeD ? 60 : 0, duration: 600 });
+      try { map.setTerrain(threeD ? { source: 'mapbox-dem', exaggeration: 1.3 } : null); } catch {}
+    };
+    if (map.isStyleLoaded()) apply(); else map.once('idle', apply);
+  }, [threeD]);
+
   // Init map once.
   useEffect(() => {
     if (!isMapboxConfigured || !mapEl.current || mapRef.current) return;
@@ -225,6 +237,14 @@ export default function CourseNavigation() {
     });
     map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), 'top-right');
     map.on('load', () => {
+      // 3D terrain relief (Mapbox DEM) + sky for a true 3D course view.
+      if (!map.getSource('mapbox-dem')) {
+        map.addSource('mapbox-dem', { type: 'raster-dem', url: 'mapbox://mapbox.mapbox-terrain-dem-v1', tileSize: 512, maxzoom: 14 });
+      }
+      map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.3 });
+      if (!map.getLayer('sky')) {
+        map.addLayer({ id: 'sky', type: 'sky', paint: { 'sky-type': 'atmosphere', 'sky-atmosphere-sun-intensity': 12 } } as any);
+      }
       map.addSource('course', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       map.addLayer({
         id: 'course-fill', type: 'fill', source: 'course',
@@ -425,7 +445,13 @@ export default function CourseNavigation() {
 
       <div className="relative min-h-[340px] flex-1">
         {isMapboxConfigured ? (
-          <div ref={mapEl} className="absolute inset-0" />
+          <>
+            <div ref={mapEl} className="absolute inset-0" />
+            <button onClick={() => setThreeD((v) => !v)}
+              className="absolute left-3 top-3 z-10 rounded-md border border-border bg-card/90 px-3 py-1.5 text-xs font-semibold shadow backdrop-blur hover:bg-card">
+              {threeD ? '2D' : '3D'} view
+            </button>
+          </>
         ) : (
           <div className="grid h-full place-items-center p-6">
             <Card className="max-w-lg">
