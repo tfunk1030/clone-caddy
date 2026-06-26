@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Label } from '@/components/ui/input';
 import { GreenMap } from '@/components/GreenMap';
 import { optimizeAim, type GreenModel } from '@/lib/shotModel';
-import { ES_NOTE } from '@/lib/expectedStrokes';
+import { ES_NOTE, DIVISIONS } from '@/lib/expectedStrokes';
 import { buildBag, recommendClub } from '@/lib/clubs';
 import { shotConditions } from '@/lib/playing';
 import { useProfile } from '@/context/ProfileContext';
@@ -58,7 +58,8 @@ export default function ExpectedStrokes() {
   const model: GreenModel = useMemo(() => ({
     greenRadius, greenCenter: PINS[pin], water: WATERS[water],
     bunker: bunker ? { x: -10, y: -10, r: 6 } : null, penaltyStrokes: 1, slopeSeverity: slope,
-  }), [greenRadius, pin, water, bunker, slope]);
+    division: profile.division,
+  }), [greenRadius, pin, water, bunker, slope, profile.division]);
 
   const wind = useMemo(() => ({ driftX: cond.driftX, widen: cond.widen }), [cond.driftX, cond.widen]);
   const opt = useMemo(() => optimizeAim(club.offlineSD, club.depthSD, model, 700, wind),
@@ -112,6 +113,13 @@ export default function ExpectedStrokes() {
             <div className="space-y-1.5"><Label>Greenside bunker</Label><Chips options={['On', 'Off']} value={bunker ? 'On' : 'Off'} onChange={(v) => setBunker(v === 'On')} /></div>
             <div className="space-y-2 border-t border-border pt-3">
               <Label>Your game</Label>
+              <label className="block space-y-1 text-xs">
+                <span className="text-muted-foreground">Division (strokes-gained baseline)</span>
+                <select value={profile.division} onChange={(e) => setProfile({ division: e.target.value as any })}
+                  className="w-full rounded-md border border-input bg-background px-2 py-1">
+                  {DIVISIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+                </select>
+              </label>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <label className="space-y-1"><span className="text-muted-foreground">Driver carry</span>
                   <input type="number" value={profile.drivingDistance} onChange={(e) => setProfile({ drivingDistance: +e.target.value || 0 })} className="w-full rounded-md border border-input bg-background px-2 py-1" /></label>
