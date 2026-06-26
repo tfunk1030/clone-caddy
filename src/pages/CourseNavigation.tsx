@@ -11,6 +11,7 @@ import { extractHoles, courseSummary, type Hole } from '@/lib/holes';
 import { buildHoleModel, approachHeading, offsetToLonLat, lonLatToOffset } from '@/lib/holeStrategy';
 import { teeStrategies } from '@/lib/teeStrategy';
 import { optimizeStrategies, type Strategy } from '@/lib/shotModel';
+import { buildGeoPolys, optimizeGeo, dispersionEllipse, haversineYd, type LL, type GeoOpt } from '@/lib/geoEval';
 import { buildBag, recommendClub } from '@/lib/clubs';
 import { shotConditions } from '@/lib/playing';
 import { GreenMap } from '@/components/GreenMap';
@@ -72,6 +73,7 @@ export default function CourseNavigation() {
   const [aimStrategy, setAimStrategy] = useState<Strategy>('optimal');
   const STRAT_COLOR: Record<Strategy, string> = { aggressive: '#ef4444', optimal: '#10d98a', safe: '#3b82f6' };
   const focus = opt ? opt[aimStrategy] : null;
+
   const tee = useMemo(
     () => (selectedHole ? teeStrategies(selectedHole, elements, profile.drivingDistance) : null),
     [selectedHole, elements, profile.drivingDistance],
@@ -81,6 +83,38 @@ export default function CourseNavigation() {
     [profile.drivingDistance, profile.offlineSD, profile.depthSD]);
   const approachYds = tee?.lines.find((l) => l.label === 'Optimal')?.remainingYds ?? selectedHole?.yards ?? 0;
   const approachClub = approachYds ? recommendClub(bag, shotConditions(approachYds).playsLike) : null;
+
+  // --- Unified Prepare map: live geo-space Expected Strokes against real polygons ---
+  // The "start" is where you're playing from; tap the map to move it. Pin is the
+  // green marker. The three optimizers + dispersion ellipse are drawn on the map.
+  const [startPt, setStartPt] = useState<LL | null>(null);
+  const pinLL = useMemo<LL | null>(() => {
+    if (!selectedHole?.green) return null;
+    const g = { lat: selectedHole.green.lat, lon: selectedHole.green.lon };
+    const ll = offsetToLonLat(g, pinOffset, heading) as [number, number];
+    return [ll[0], ll[1]];
+  }, [selectedHole, pinOffset.x, pinOffset.y, heading]);
+  // Default start = the optimal tee landing (approach length) or the tee itself.
+  useEffect(() => {
+    if (!selectedHole) { setStartPt(null); return; }
+    const optLine = tee?.lines.find((l) => l.label === 'Optimal');
+    setStartPt((optLine?.target as LL) || (selectedHole.path[0] as LL) || null);
+  }, [selectedHole, tee]);
+
+  const geoPolys = useMemo(
+    () => (pinLL ? buildGeoPolys(elements as any, { lat: pinLL[1], lon: pinLL[0] }) : null),
+    [elements, pinLL],
+  );
+  const apprOffSD = approachClub?.offlineSD ?? profile.offlineSD;
+  const apprDepthSD = approachClub?.depthSD ?? profile.depthSD;
+  const geoOpt = useMemo<GeoOpt | null>(
+    () => (startPt && pinLL && geoPolys
+      ? optimizeGeo(startPt, pinLL, geoPolys, apprOffSD, apprDepthSD, profile.division, { sgArg: profile.sgArg, sgPutting: profile.sgPutting })
+      : null),
+    [startPt, pinLL, geoPolys, apprOffSD, apprDepthSD, profile.division, profile.sgArg, profile.sgPutting],
+  );
+  const geoFocus = geoOpt ? geoOpt[aimStrategy] : null;
+  const focusDistanceYd = startPt && pinLL ? haversineYd(startPt, pinLL) : 0;
 
   // Draw the tee-shot lines on the map.
   useEffect(() => {
@@ -96,6 +130,41 @@ export default function CourseNavigation() {
     ]);
     src.setData({ type: 'FeatureCollection', features } as any);
   }, [selectedHole, tee]);
+
+  // Draw the Prepare overlay: start point, start→aim line, three optimizer aims,
+  // and the dispersion ellipse around the focused aim.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isMapboxConfigured) return;
+    const src = map.getSource('prepare') as mapboxgl.GeoJSONSource | undefined;
+    const esrc = map.getSource('prepare-ellipse') as mapboxgl.GeoJSONSource | undefined;
+    if (!src || !esrc) return;
+    const empty = { type: 'FeatureCollection', features: [] } as any;
+    if (!geoOpt || !startPt || !geoFocus) { src.setData(empty); esrc.setData(empty); return; }
+    const feats: any[] = [
+      { type: 'Feature', properties: { role: 'start' }, geometry: { type: 'Point', coordinates: startPt } },
+      { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [startPt, geoFocus.aim] } },
+      ...(['aggressive', 'optimal', 'safe'] as Strategy[]).map((s) => ({
+        type: 'Feature', properties: { role: 'aim', kind: s, focused: s === aimStrategy },
+        geometry: { type: 'Point', coordinates: geoOpt[s].aim },
+      })),
+    ];
+    src.setData({ type: 'FeatureCollection', features: feats } as any);
+    const ring = dispersionEllipse(startPt, geoFocus.aim, apprOffSD, apprDepthSD);
+    esrc.setData({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } } as any);
+  }, [geoOpt, startPt, aimStrategy, geoFocus, apprOffSD, apprDepthSD]);
+
+  // Tap the map to set the start point (where you're playing from).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isMapboxConfigured) return;
+    const onClick = (e: mapboxgl.MapMouseEvent) => {
+      if (!selectedHole) return;
+      setStartPt([e.lngLat.lng, e.lngLat.lat]);
+    };
+    map.on('click', onClick);
+    return () => { map.off('click', onClick); };
+  }, [selectedHole]);
 
   // Draggable pin marker + green outline for the selected hole.
   useEffect(() => {
@@ -191,6 +260,29 @@ export default function CourseNavigation() {
         id: 'tee-lines-end', type: 'circle', source: 'tee-lines',
         filter: ['==', ['geometry-type'], 'Point'],
         paint: { 'circle-radius': 5, 'circle-color': ['match', ['get', 'kind'], 'Aggressive', '#ef4444', 'Conservative', '#3b82f6', '#10d98a'], 'circle-stroke-width': 1.5, 'circle-stroke-color': '#fff' },
+      });
+
+      // Prepare overlay: dispersion ellipse, aim line, and the three optimizer aims.
+      map.addSource('prepare-ellipse', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({ id: 'prepare-ellipse-fill', type: 'fill', source: 'prepare-ellipse', paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.12 } });
+      map.addLayer({ id: 'prepare-ellipse-line', type: 'line', source: 'prepare-ellipse', paint: { 'line-color': '#ffffff', 'line-opacity': 0.6, 'line-width': 1, 'line-dasharray': [2, 2] } });
+
+      map.addSource('prepare', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({
+        id: 'prepare-line', type: 'line', source: 'prepare', filter: ['==', ['geometry-type'], 'LineString'],
+        layout: { 'line-cap': 'round' }, paint: { 'line-width': 2, 'line-color': '#ffffff', 'line-opacity': 0.7 },
+      });
+      map.addLayer({
+        id: 'prepare-aims', type: 'circle', source: 'prepare', filter: ['==', ['get', 'role'], 'aim'],
+        paint: {
+          'circle-radius': ['case', ['get', 'focused'], 8, 6],
+          'circle-color': ['match', ['get', 'kind'], 'aggressive', '#ef4444', 'safe', '#3b82f6', '#10d98a'],
+          'circle-stroke-width': ['case', ['get', 'focused'], 3, 1.5], 'circle-stroke-color': '#fff',
+        },
+      });
+      map.addLayer({
+        id: 'prepare-start', type: 'circle', source: 'prepare', filter: ['==', ['get', 'role'], 'start'],
+        paint: { 'circle-radius': 6, 'circle-color': '#0a1420', 'circle-stroke-width': 3, 'circle-stroke-color': '#fbbf24' },
       });
     });
     mapRef.current = map;
@@ -393,10 +485,19 @@ export default function CourseNavigation() {
                       className={`flex-1 rounded-md border px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors ${aimStrategy === s ? 'text-foreground' : 'text-muted-foreground'}`}
                       style={{ borderColor: aimStrategy === s ? STRAT_COLOR[s] : 'var(--border)', background: aimStrategy === s ? `${STRAT_COLOR[s]}1a` : 'transparent' }}>
                       <span className="mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ background: STRAT_COLOR[s] }} />
-                      {s === 'optimal' ? 'Opt' : s === 'aggressive' ? 'Aggr' : 'Safe'} {opt![s].es.toFixed(2)}
+                      {s === 'optimal' ? 'Opt' : s === 'aggressive' ? 'Aggr' : 'Safe'} {(geoOpt ? geoOpt[s].es : opt![s].es).toFixed(2)}
                     </button>
                   ))}
                 </div>
+                {geoFocus && (
+                  <div className="mt-1.5 rounded-md border border-border bg-background/60 px-2 py-1.5 text-[11px]">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">On-map target (real polygons)</span>
+                      <span className="font-semibold" style={{ color: STRAT_COLOR[aimStrategy] }}>ES {geoFocus.es.toFixed(2)} · risk {geoFocus.cvar.toFixed(2)}</span>
+                    </div>
+                    <div className="mt-0.5 text-muted-foreground">Tap the map to move your start point ({Math.round(focusDistanceYd)} yd to pin).</div>
+                  </div>
+                )}
                 <div className="mt-1.5 grid grid-cols-[120px_1fr] gap-3">
                   <div className="aspect-square"><GreenMap model={strategy.model} aim={focus.aim} landings={focus.result.landings} span={Math.max(28, strategy.model.greenRadius + 14)}
                     markers={(['aggressive', 'optimal', 'safe'] as Strategy[]).map((s) => ({ x: opt![s].aim.x, y: opt![s].aim.y, color: STRAT_COLOR[s], label: s[0].toUpperCase() }))} /></div>
