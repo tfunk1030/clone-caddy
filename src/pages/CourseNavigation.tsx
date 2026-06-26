@@ -11,7 +11,7 @@ import { extractHoles, courseSummary, type Hole } from '@/lib/holes';
 import { buildHoleModel, approachHeading, offsetToLonLat, lonLatToOffset } from '@/lib/holeStrategy';
 import { teeStrategies } from '@/lib/teeStrategy';
 import { optimizeStrategies, type Strategy } from '@/lib/shotModel';
-import { buildGeoPolys, optimizeGeo, dispersionEllipse, haversineYd, type LL, type GeoOpt, type Conditions } from '@/lib/geoEval';
+import { buildGeoPolys, optimizeGeo, evaluateAimAt, dispersionEllipse, haversineYd, type LL, type GeoOpt, type Conditions, type AimEval } from '@/lib/geoEval';
 import { COURSE_CONDITIONS } from '@/lib/conditions';
 
 // Photoreal availability is a cheap env check; the deck.gl overlay itself is
@@ -26,7 +26,8 @@ import { useProfile } from '@/context/ProfileContext';
 type Course = { name: string; lat: number; lon: number; osm_type?: string; osm_id?: number };
 export type CourseMode = 'prepare' | 'play' | 'tournament';
 // A per-hole strategy you build and save on the satellite overlay.
-type SavedStrategy = { startPt?: LL; pin?: { x: number; y: number }; aim?: Strategy; notes?: string };
+type SavedStrategy = { startPt?: LL; aimPt?: LL; pin?: { x: number; y: number }; aim?: Strategy; notes?: string };
+type PlaceMode = 'start' | 'aim' | 'pin' | null;
 const STRAT_KEY = 'caddai.strategies';
 
 export default function CourseNavigation({ mode = 'prepare' }: { mode?: CourseMode } = {}) {
@@ -101,6 +102,8 @@ export default function CourseNavigation({ mode = 'prepare' }: { mode?: CourseMo
   // The "start" is where you're playing from; tap the map to move it. Pin is the
   // green marker. The three optimizers + dispersion ellipse are drawn on the map.
   const [startPt, setStartPt] = useState<LL | null>(null);
+  const [userAim, setUserAim] = useState<LL | null>(null);   // your placed aim (overrides the optimizer's)
+  const [placeMode, setPlaceMode] = useState<PlaceMode>(null); // which point the next map tap sets
   const pinLL = useMemo<LL | null>(() => {
     if (!selectedHole?.green) return null;
     const g = { lat: selectedHole.green.lat, lon: selectedHole.green.lon };
@@ -134,7 +137,18 @@ export default function CourseNavigation({ mode = 'prepare' }: { mode?: CourseMo
       : null),
     [startPt, pinLL, geoPolys, apprOffSD, apprDepthSD, profile.division, profile.sgArg, profile.sgPutting, cond.firmness, cond.stimp],
   );
-  const geoFocus = geoOpt ? geoOpt[aimStrategy] : null;
+  // ES of your placed aim (when set), else the optimizer's pick for the focused strategy.
+  const userAimEval = useMemo<AimEval | null>(
+    () => (userAim && startPt && pinLL && geoPolys
+      ? evaluateAimAt(startPt, userAim, pinLL, geoPolys, apprOffSD, apprDepthSD, profile.division, { sgArg: profile.sgArg, sgPutting: profile.sgPutting }, cond)
+      : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [userAim, startPt, pinLL, geoPolys, apprOffSD, apprDepthSD, profile.division, profile.sgArg, profile.sgPutting, cond.firmness, cond.stimp],
+  );
+  const focusedAim: LL | null = userAim ?? (geoOpt ? geoOpt[aimStrategy].aim : null);
+  const geoFocusEval = userAim
+    ? (userAimEval ? { es: userAimEval.mean, cvar: userAimEval.cvar, breakdown: userAimEval.breakdown } : null)
+    : (geoOpt ? { es: geoOpt[aimStrategy].es, cvar: geoOpt[aimStrategy].cvar, breakdown: geoOpt[aimStrategy].breakdown } : null);
   const focusDistanceYd = startPt && pinLL ? haversineYd(startPt, pinLL) : 0;
 
   // Saved per-hole strategies (Play / Tournament modes). Persisted to localStorage.
@@ -150,7 +164,7 @@ export default function CourseNavigation({ mode = 'prepare' }: { mode?: CourseMo
   const saveStrategy = () => {
     const key = holeKey(selectedHole);
     if (!key) return;
-    persistStrategies({ ...strategies, [key]: { startPt: startPt ?? undefined, pin: pinOffset, aim: aimStrategy, notes: notesDraft.trim() || undefined } });
+    persistStrategies({ ...strategies, [key]: { startPt: startPt ?? undefined, aimPt: userAim ?? undefined, pin: pinOffset, aim: aimStrategy, notes: notesDraft.trim() || undefined } });
   };
   const clearStrategy = () => {
     const key = holeKey(selectedHole);
@@ -159,11 +173,13 @@ export default function CourseNavigation({ mode = 'prepare' }: { mode?: CourseMo
     persistStrategies(next);
     setNotesDraft('');
   };
-  // On selecting a hole (Play/Tournament), load any saved aim/pin/notes.
+  // On selecting a hole: reset placement, and (Play/Tournament) load any saved
+  // aim/pin/notes for that hole.
   useEffect(() => {
-    if (!selectedHole || mode === 'prepare') { setNotesDraft(''); return; }
-    const saved = strategies[holeKey(selectedHole)];
+    setPlaceMode(null);
+    const saved = mode !== 'prepare' && selectedHole ? strategies[holeKey(selectedHole)] : undefined;
     setNotesDraft(saved?.notes || '');
+    setUserAim(saved?.aimPt ?? null);
     if (saved?.aim) setAimStrategy(saved.aim);
     if (saved?.pin) setPin(saved.pin);
     // saved.startPt is applied by the start-point effect below.
@@ -194,31 +210,44 @@ export default function CourseNavigation({ mode = 'prepare' }: { mode?: CourseMo
     const esrc = map.getSource('prepare-ellipse') as mapboxgl.GeoJSONSource | undefined;
     if (!src || !esrc) return;
     const empty = { type: 'FeatureCollection', features: [] } as any;
-    if (!geoOpt || !startPt || !geoFocus) { src.setData(empty); esrc.setData(empty); return; }
+    if (!geoOpt || !startPt || !focusedAim) { src.setData(empty); esrc.setData(empty); return; }
     const feats: any[] = [
       { type: 'Feature', properties: { role: 'start' }, geometry: { type: 'Point', coordinates: startPt } },
-      { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [startPt, geoFocus.aim] } },
+      { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [startPt, focusedAim] } },
+      // optimizer suggestions (dimmed when you've placed your own aim)
       ...(['aggressive', 'optimal', 'safe'] as Strategy[]).map((s) => ({
-        type: 'Feature', properties: { role: 'aim', kind: s, focused: s === aimStrategy },
+        type: 'Feature', properties: { role: 'aim', kind: s, focused: !userAim && s === aimStrategy },
         geometry: { type: 'Point', coordinates: geoOpt[s].aim },
       })),
+      // your placed aim
+      ...(userAim ? [{ type: 'Feature', properties: { role: 'useraim' }, geometry: { type: 'Point', coordinates: userAim } }] : []),
     ];
     src.setData({ type: 'FeatureCollection', features: feats } as any);
-    const ring = dispersionEllipse(startPt, geoFocus.aim, apprOffSD, apprDepthSD);
+    const ring = dispersionEllipse(startPt, focusedAim, apprOffSD, apprDepthSD);
     esrc.setData({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } } as any);
-  }, [geoOpt, startPt, aimStrategy, geoFocus, apprOffSD, apprDepthSD]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geoOpt, startPt, aimStrategy, focusedAim, userAim, apprOffSD, apprDepthSD]);
 
-  // Tap the map to set the start point (where you're playing from).
+  // Tap the map to place the active point (Set Start / Set Aim / Set Pin).
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !isMapboxConfigured) return;
     const onClick = (e: mapboxgl.MapMouseEvent) => {
-      if (!selectedHole) return;
-      setStartPt([e.lngLat.lng, e.lngLat.lat]);
+      if (!selectedHole || !placeMode) return; // only when a "Set X" mode is active
+      const ll: LL = [e.lngLat.lng, e.lngLat.lat];
+      if (placeMode === 'aim') setUserAim(ll);
+      else if (placeMode === 'start') setStartPt(ll);
+      else if (placeMode === 'pin' && selectedHole.green) {
+        const off = lonLatToOffset({ lat: selectedHole.green.lat, lon: selectedHole.green.lon }, ll, heading);
+        setPin({ x: Math.round(off.x), y: Math.round(off.y) });
+      }
+      setPlaceMode(null);
     };
     map.on('click', onClick);
+    map.getCanvas().style.cursor = placeMode ? 'crosshair' : '';
     return () => { map.off('click', onClick); };
-  }, [selectedHole]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedHole, placeMode, heading]);
 
   // Draggable pin marker + green outline for the selected hole.
   useEffect(() => {
@@ -379,6 +408,10 @@ export default function CourseNavigation({ mode = 'prepare' }: { mode?: CourseMo
       map.addLayer({
         id: 'prepare-start', type: 'circle', source: 'prepare', filter: ['==', ['get', 'role'], 'start'],
         paint: { 'circle-radius': 6, 'circle-color': '#0a1420', 'circle-stroke-width': 3, 'circle-stroke-color': '#fbbf24' },
+      });
+      map.addLayer({
+        id: 'prepare-useraim', type: 'circle', source: 'prepare', filter: ['==', ['get', 'role'], 'useraim'],
+        paint: { 'circle-radius': 7, 'circle-color': '#ffffff', 'circle-stroke-width': 2, 'circle-stroke-color': '#0a1420' },
       });
     });
     mapRef.current = map;
@@ -577,6 +610,27 @@ export default function CourseNavigation({ mode = 'prepare' }: { mode?: CourseMo
               <button onClick={() => setSelectedHole(null)} className="text-muted-foreground hover:text-foreground">✕</button>
             </div>
 
+            {/* Shot setup — place your Start, Aim and Pin on the satellite, then read ES. */}
+            <div className="mt-3 border-t border-border pt-3">
+              <div className="mb-1.5 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <span>Shot setup</span>
+                {(userAim || placeMode) && (
+                  <button onClick={() => { setUserAim(null); setPlaceMode(null); }} className="font-normal normal-case text-primary hover:underline">Reset aim</button>
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {([['start', 'Set Start', !!startPt], ['aim', 'Set Aim', !!userAim], ['pin', 'Set Pin', true]] as [PlaceMode, string, boolean][]).map(([m, label, isSet]) => (
+                  <button key={m} onClick={() => setPlaceMode(placeMode === m ? null : m)}
+                    className={`rounded-md border px-1.5 py-1.5 text-[11px] font-semibold transition-colors ${
+                      placeMode === m ? 'border-primary bg-primary/15 text-primary' : isSet ? 'border-border text-foreground' : 'border-dashed border-border text-muted-foreground hover:text-foreground'
+                    }`}>{label}{isSet && placeMode !== m ? ' ✓' : ''}</button>
+                ))}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {placeMode ? `Tap the map to set the ${placeMode}.` : userAim ? 'Custom aim placed — ES below reflects your target.' : 'Place your own aim, or pick an optimizer target below.'}
+              </p>
+            </div>
+
             {tee && selectedHole.par && selectedHole.par >= 4 && (
               <div className="mt-3 border-t border-border pt-3">
                 <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Tee shot</div>
@@ -602,21 +656,21 @@ export default function CourseNavigation({ mode = 'prepare' }: { mode?: CourseMo
               <>
                 <div className="mt-1.5 flex gap-1">
                   {(['aggressive', 'optimal', 'safe'] as Strategy[]).map((s) => (
-                    <button key={s} onClick={() => setAimStrategy(s)}
-                      className={`flex-1 rounded-md border px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors ${aimStrategy === s ? 'text-foreground' : 'text-muted-foreground'}`}
-                      style={{ borderColor: aimStrategy === s ? STRAT_COLOR[s] : 'var(--border)', background: aimStrategy === s ? `${STRAT_COLOR[s]}1a` : 'transparent' }}>
+                    <button key={s} onClick={() => { setAimStrategy(s); setUserAim(null); }}
+                      className={`flex-1 rounded-md border px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors ${!userAim && aimStrategy === s ? 'text-foreground' : 'text-muted-foreground'}`}
+                      style={{ borderColor: !userAim && aimStrategy === s ? STRAT_COLOR[s] : 'var(--border)', background: !userAim && aimStrategy === s ? `${STRAT_COLOR[s]}1a` : 'transparent' }}>
                       <span className="mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ background: STRAT_COLOR[s] }} />
                       {s === 'optimal' ? 'Opt' : s === 'aggressive' ? 'Aggr' : 'Safe'} {(geoOpt ? geoOpt[s].es : opt![s].es).toFixed(2)}
                     </button>
                   ))}
                 </div>
-                {geoFocus && (
+                {geoFocusEval && (
                   <div className="mt-1.5 rounded-md border border-border bg-background/60 px-2 py-1.5 text-[11px]">
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">On-map target (real polygons)</span>
-                      <span className="font-semibold" style={{ color: STRAT_COLOR[aimStrategy] }}>ES {geoFocus.es.toFixed(2)} · risk {geoFocus.cvar.toFixed(2)}</span>
+                      <span className="text-muted-foreground">{userAim ? 'Your aim' : 'Optimizer target'} (real polygons)</span>
+                      <span className="font-semibold" style={{ color: userAim ? '#fff' : STRAT_COLOR[aimStrategy] }}>ES {geoFocusEval.es.toFixed(2)} · risk {geoFocusEval.cvar.toFixed(2)}</span>
                     </div>
-                    <div className="mt-0.5 text-muted-foreground">Tap the map to move your start point ({Math.round(focusDistanceYd)} yd to pin).</div>
+                    <div className="mt-0.5 text-muted-foreground">{Math.round(focusDistanceYd)} yd start → pin. Use “Set Aim/Start/Pin” above to edit on the map.</div>
                     <div className="mt-0.5 text-muted-foreground">Conditions: <span className="text-foreground">{condPreset.label}</span> · {condPreset.firmness} · Stimp {condPreset.stimp}</div>
                   </div>
                 )}

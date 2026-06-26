@@ -155,6 +155,15 @@ export function evaluateAim(
   return { mean, cvar: cvar30(sorted), sorted, breakdown };
 }
 
+// Evaluate a single user-chosen aim (builds its own sample set).
+export function evaluateAimAt(
+  start: LL, aim: LL, pin: LL, polys: GeoPolys,
+  sigmaOffYd: number, sigmaDepthYd: number,
+  division: Division, sg?: ShortGame, cond?: Conditions, nSamples = 240,
+): AimEval {
+  return evaluateAim(start, aim, pin, polys, sigmaOffYd, sigmaDepthYd, makeSamples(nSamples), division, sg, cond);
+}
+
 function cvar30(sortedAsc: number[]): number {
   const k = Math.max(1, Math.ceil(sortedAsc.length * 0.3));
   let s = 0;
