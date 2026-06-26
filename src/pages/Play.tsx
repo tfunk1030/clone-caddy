@@ -3,6 +3,29 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { expectedStrokesAt } from '@/lib/expectedStrokes';
 import { useProfile } from '@/context/ProfileContext';
+import CourseNavigation from '@/pages/CourseNavigation';
+
+// Play has two views: a Game Plan (build/save per-hole strategies on the
+// satellite map) and a Scorecard (track a round + strokes gained).
+export default function Play() {
+  const [view, setView] = useState<'plan' | 'scorecard'>('plan');
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-2 border-b border-border bg-card px-4 py-2">
+        <span className="mr-1 font-display text-sm font-bold tracking-wide">Play</span>
+        {(['plan', 'scorecard'] as const).map((v) => (
+          <button key={v} onClick={() => setView(v)}
+            className={`rounded-full border px-3 py-1 text-xs transition-colors ${view === v ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>
+            {v === 'plan' ? 'Game Plan' : 'Scorecard'}
+          </button>
+        ))}
+      </div>
+      {view === 'plan'
+        ? <div className="min-h-0 flex-1"><CourseNavigation mode="play" /></div>
+        : <div className="min-h-0 flex-1 overflow-auto"><Scorecard /></div>}
+    </div>
+  );
+}
 
 // A round scorecard with strokes-gained vs the Expected-Strokes baseline.
 // Each hole: par, score, putts, fairway hit, GIR. We estimate strokes gained
@@ -26,7 +49,7 @@ function expectedPuttsForHole(yards: number, division: any): number {
   return expectedStrokesAt(proximityFt / 3, 'green', division);
 }
 
-export default function Play() {
+function Scorecard() {
   const { profile } = useProfile();
   const [rows, setRows] = useState<HoleRow[]>(() => {
     try { const s = localStorage.getItem(KEY); if (s) return JSON.parse(s); } catch {}

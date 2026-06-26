@@ -23,8 +23,12 @@ import { GreenMap } from '@/components/GreenMap';
 import { useProfile } from '@/context/ProfileContext';
 
 type Course = { name: string; lat: number; lon: number; osm_type?: string; osm_id?: number };
+export type CourseMode = 'prepare' | 'play' | 'tournament';
+// A per-hole strategy you build and save on the satellite overlay.
+type SavedStrategy = { startPt?: LL; pin?: { x: number; y: number }; aim?: Strategy; notes?: string };
+const STRAT_KEY = 'caddai.strategies';
 
-export default function CourseNavigation() {
+export default function CourseNavigation({ mode = 'prepare' }: { mode?: CourseMode } = {}) {
   const mapEl = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markerRef = useRef<mapboxgl.Marker | null>(null);
@@ -102,12 +106,16 @@ export default function CourseNavigation() {
     const ll = offsetToLonLat(g, pinOffset, heading) as [number, number];
     return [ll[0], ll[1]];
   }, [selectedHole, pinOffset.x, pinOffset.y, heading]);
-  // Default start = the optimal tee landing (approach length) or the tee itself.
+  // Start = a saved strategy's start (Play/Tournament), else the optimal tee
+  // landing (approach length), else the tee itself.
   useEffect(() => {
     if (!selectedHole) { setStartPt(null); return; }
+    const saved = mode !== 'prepare' ? strategies[holeKey(selectedHole)] : undefined;
+    if (saved?.startPt) { setStartPt(saved.startPt); return; }
     const optLine = tee?.lines.find((l) => l.label === 'Optimal');
     setStartPt((optLine?.target as LL) || (selectedHole.path[0] as LL) || null);
-  }, [selectedHole, tee]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedHole, tee, mode]);
 
   const geoPolys = useMemo(
     () => (pinLL ? buildGeoPolys(elements as any, { lat: pinLL[1], lon: pinLL[0] }) : null),
@@ -123,6 +131,39 @@ export default function CourseNavigation() {
   );
   const geoFocus = geoOpt ? geoOpt[aimStrategy] : null;
   const focusDistanceYd = startPt && pinLL ? haversineYd(startPt, pinLL) : 0;
+
+  // Saved per-hole strategies (Play / Tournament modes). Persisted to localStorage.
+  const [strategies, setStrategies] = useState<Record<string, SavedStrategy>>(() => {
+    try { return JSON.parse(localStorage.getItem(STRAT_KEY) || '{}'); } catch { return {}; }
+  });
+  const [notesDraft, setNotesDraft] = useState('');
+  const savedHere = mode !== 'prepare' && selectedHole ? strategies[holeKey(selectedHole)] : undefined;
+  const persistStrategies = (next: Record<string, SavedStrategy>) => {
+    setStrategies(next);
+    try { localStorage.setItem(STRAT_KEY, JSON.stringify(next)); } catch {}
+  };
+  const saveStrategy = () => {
+    const key = holeKey(selectedHole);
+    if (!key) return;
+    persistStrategies({ ...strategies, [key]: { startPt: startPt ?? undefined, pin: pinOffset, aim: aimStrategy, notes: notesDraft.trim() || undefined } });
+  };
+  const clearStrategy = () => {
+    const key = holeKey(selectedHole);
+    if (!key) return;
+    const next = { ...strategies }; delete next[key];
+    persistStrategies(next);
+    setNotesDraft('');
+  };
+  // On selecting a hole (Play/Tournament), load any saved aim/pin/notes.
+  useEffect(() => {
+    if (!selectedHole || mode === 'prepare') { setNotesDraft(''); return; }
+    const saved = strategies[holeKey(selectedHole)];
+    setNotesDraft(saved?.notes || '');
+    if (saved?.aim) setAimStrategy(saved.aim);
+    if (saved?.pin) setPin(saved.pin);
+    // saved.startPt is applied by the start-point effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedHole, mode]);
 
   // Draw the tee-shot lines on the map.
   useEffect(() => {
@@ -409,8 +450,14 @@ export default function CourseNavigation() {
     <div className="flex h-full flex-col md:flex-row">
       <div className="w-full shrink-0 space-y-4 border-b border-border bg-card p-4 md:w-80 md:border-b-0 md:border-r">
         <div>
-          <h2 className="font-display text-xl font-bold tracking-wide">Course Navigation</h2>
-          <p className="text-sm text-muted-foreground">Search a course to map it in 3D.</p>
+          <h2 className="font-display text-xl font-bold tracking-wide">
+            {mode === 'play' ? 'Play — Game Plan' : mode === 'tournament' ? 'Tournament Strategy' : 'Course Navigation'}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {mode === 'prepare'
+              ? 'Search a course to map it in 3D.'
+              : 'Build and save a strategy for each hole on the satellite overlay.'}
+          </p>
         </div>
         <form onSubmit={search} className="flex gap-2">
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search courses…" />
@@ -607,6 +654,25 @@ export default function CourseNavigation() {
                 )}
               </div>
             </div>
+
+            {mode !== 'prepare' && (
+              <div className="mt-3 border-t border-border pt-3">
+                <div className="mb-1.5 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <span>{mode === 'tournament' ? 'Tournament strategy' : 'Game plan'}</span>
+                  {savedHere && <span className="font-normal normal-case text-primary">● saved</span>}
+                </div>
+                <textarea value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} rows={2}
+                  placeholder="Notes: club, target line, miss side, bail-out…"
+                  className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs" />
+                <div className="mt-1.5 flex gap-1.5">
+                  <Button onClick={saveStrategy} className="h-8 flex-1 text-xs">{savedHere ? 'Update strategy' : 'Save strategy'}</Button>
+                  {savedHere && <Button variant="outline" onClick={clearStrategy} className="h-8 text-xs">Clear</Button>}
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Saves your start point, aim ({aimStrategy}), pin and notes for this hole.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>
