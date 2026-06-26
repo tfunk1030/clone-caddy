@@ -59,7 +59,8 @@ export default function ExpectedStrokes() {
     greenRadius, greenCenter: PINS[pin], water: WATERS[water],
     bunker: bunker ? { x: -10, y: -10, r: 6 } : null, penaltyStrokes: 1, slopeSeverity: slope,
     division: profile.division,
-  }), [greenRadius, pin, water, bunker, slope, profile.division]);
+    shortGame: { sgArg: profile.sgArg, sgPutting: profile.sgPutting },
+  }), [greenRadius, pin, water, bunker, slope, profile.division, profile.sgArg, profile.sgPutting]);
 
   const wind = useMemo(() => ({ driftX: cond.driftX, widen: cond.widen }), [cond.driftX, cond.widen]);
   const opt = useMemo(() => optimizeAim(club.offlineSD, club.depthSD, model, 700, wind),
@@ -120,6 +121,13 @@ export default function ExpectedStrokes() {
                   {DIVISIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
                 </select>
               </label>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <label className="space-y-1"><span className="text-muted-foreground">SG: Around-grn /rd</span>
+                  <input type="number" step="0.1" value={profile.sgArg} onChange={(e) => setProfile({ sgArg: +e.target.value || 0 })} className="w-full rounded-md border border-input bg-background px-2 py-1" /></label>
+                <label className="space-y-1"><span className="text-muted-foreground">SG: Putting /rd</span>
+                  <input type="number" step="0.1" value={profile.sgPutting} onChange={(e) => setProfile({ sgPutting: +e.target.value || 0 })} className="w-full rounded-md border border-input bg-background px-2 py-1" /></label>
+              </div>
+              <p className="text-[11px] text-muted-foreground">0 = PGA-Tour average. Positive = better than tour (lowers ES on chips ≤55 yd and putts).</p>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <label className="space-y-1"><span className="text-muted-foreground">Driver carry</span>
                   <input type="number" value={profile.drivingDistance} onChange={(e) => setProfile({ drivingDistance: +e.target.value || 0 })} className="w-full rounded-md border border-input bg-background px-2 py-1" /></label>

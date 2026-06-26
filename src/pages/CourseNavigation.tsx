@@ -66,8 +66,8 @@ export default function CourseNavigation() {
     [selectedHole, elements, pinOffset.x, pinOffset.y],
   );
   const opt = useMemo(
-    () => (strategy ? optimizeAim(profile.offlineSD, profile.depthSD, { ...strategy.model, division: profile.division }, 500) : null),
-    [strategy, profile.offlineSD, profile.depthSD, profile.division],
+    () => (strategy ? optimizeAim(profile.offlineSD, profile.depthSD, { ...strategy.model, division: profile.division, shortGame: { sgArg: profile.sgArg, sgPutting: profile.sgPutting } }, 500) : null),
+    [strategy, profile.offlineSD, profile.depthSD, profile.division, profile.sgArg, profile.sgPutting],
   );
   const tee = useMemo(
     () => (selectedHole ? teeStrategies(selectedHole, elements, profile.drivingDistance) : null),

@@ -7,7 +7,7 @@
 // Optimizing the aim over a grid demonstrates "centering your dispersion" —
 // aiming off the pin to the fat side when trouble guards it.
 
-import { expectedStrokesAt, type Division } from './expectedStrokes';
+import { expectedStrokesAt, type Division, type ShortGame } from './expectedStrokes';
 
 export type GreenModel = {
   greenRadius: number;          // yards
@@ -17,6 +17,7 @@ export type GreenModel = {
   penaltyStrokes: number;       // strokes added for finding water/OB
   slopeSeverity?: number;       // green slope 0..5 — harder putts
   division?: Division;          // player population for the ES model (default PGA Tour)
+  shortGame?: ShortGame;        // strokes-gained skill (default = tour average)
 };
 
 // Wind effect applied to a shot: a mean landing push (yards) plus a dispersion
@@ -44,12 +45,13 @@ export function classify(p: { x: number; y: number }, g: GreenModel): { outcome:
 
 function strokesFrom(outcome: Outcome, remYds: number, g: GreenModel): number {
   const div = g.division || 'pga-tour';
+  const sg = g.shortGame;
   if (outcome === 'green') {
     const slopeFactor = 1 + (g.slopeSeverity || 0) * 0.03; // steeper greens → harder putts
-    return expectedStrokesAt(remYds, 'green', div) * slopeFactor; // green model is in yards
+    return expectedStrokesAt(remYds, 'green', div, sg) * slopeFactor; // green model is in yards
   }
-  if (outcome === 'water') return g.penaltyStrokes + expectedStrokesAt(remYds, 'rough', div);
-  return expectedStrokesAt(remYds, outcome === 'sand' ? 'sand' : 'rough', div);
+  if (outcome === 'water') return g.penaltyStrokes + expectedStrokesAt(remYds, 'rough', div, sg);
+  return expectedStrokesAt(remYds, outcome === 'sand' ? 'sand' : 'rough', div, sg);
 }
 
 // Standard-normal samples, generated once and reused across every aim so the
