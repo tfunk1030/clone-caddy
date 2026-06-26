@@ -12,6 +12,11 @@ import { buildHoleModel, approachHeading, offsetToLonLat, lonLatToOffset } from 
 import { teeStrategies } from '@/lib/teeStrategy';
 import { optimizeStrategies, type Strategy } from '@/lib/shotModel';
 import { buildGeoPolys, optimizeGeo, dispersionEllipse, haversineYd, type LL, type GeoOpt } from '@/lib/geoEval';
+
+// Photoreal availability is a cheap env check; the deck.gl overlay itself is
+// dynamically imported only when the user switches to Photoreal (keeps deck.gl
+// out of the initial bundle).
+const photorealAvailable = !!import.meta.env.VITE_GOOGLE_PHOTOREAL_API_KEY;
 import { buildBag, recommendClub } from '@/lib/clubs';
 import { shotConditions } from '@/lib/playing';
 import { GreenMap } from '@/components/GreenMap';
@@ -28,7 +33,9 @@ export default function CourseNavigation() {
   const [active, setActive] = useState<Course | null>(null);
   const [status, setStatus] = useState('');
   const [legend, setLegend] = useState<Record<string, number>>({});
-  const [threeD, setThreeD] = useState(true);
+  const [view, setView] = useState<'flat' | '3d' | 'photoreal'>('3d');
+  const [photoCredit, setPhotoCredit] = useState('');
+  const overlayRef = useRef<any>(null);
   const [holes, setHoles] = useState<Hole[]>([]);
   const [elements, setElements] = useState<any[]>([]);
   const [selectedHole, setSelectedHole] = useState<Hole | null>(null);
@@ -212,16 +219,39 @@ export default function CourseNavigation() {
     marker.setLngLat(offsetToLonLat({ lat: selectedHole.green.lat, lon: selectedHole.green.lon }, pinOffset, heading));
   }, [pinOffset.x, pinOffset.y]);
 
-  // 2D / 3D toggle: tilt the camera and switch terrain relief on/off.
+  // View mode (flat / 3D terrain / photorealistic): tilt the camera, switch DEM
+  // terrain, and add/remove the Google Photorealistic 3D Tiles deck.gl overlay.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !isMapboxConfigured) return;
+    // Course/strategy overlays are hidden in photoreal mode (the Google mesh is
+    // the scene); shown otherwise.
+    const overlayLayers = ['course-fill', 'course-line', 'hole-hi', 'green-hi-fill', 'green-hi-line',
+      'tee-lines-line', 'tee-lines-end', 'prepare-line', 'prepare-aims', 'prepare-start',
+      'prepare-ellipse-fill', 'prepare-ellipse-line'];
     const apply = () => {
-      map.easeTo({ pitch: threeD ? 60 : 0, duration: 600 });
-      try { map.setTerrain(threeD ? { source: 'mapbox-dem', exaggeration: 1.3 } : null); } catch {}
+      map.easeTo({ pitch: view === 'flat' ? 0 : 60, duration: 600 });
+      try { map.setTerrain(view === '3d' ? { source: 'mapbox-dem', exaggeration: 1.3 } : null); } catch {}
+      for (const id of overlayLayers) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', view === 'photoreal' ? 'none' : 'visible');
+      }
+      // Photorealistic 3D Tiles overlay (deck.gl), keyed off the user's Google
+      // key — dynamically imported so deck.gl loads only on demand.
+      if (view === 'photoreal' && photorealAvailable && !overlayRef.current) {
+        overlayRef.current = 'loading';
+        import('../lib/photoreal').then((m) => {
+          if (overlayRef.current !== 'loading') return; // view changed before load
+          const ov = m.createPhotorealOverlay(setPhotoCredit);
+          if (ov && mapRef.current) { mapRef.current.addControl(ov as any); overlayRef.current = ov; }
+          else overlayRef.current = null;
+        }).catch(() => { overlayRef.current = null; });
+      } else if (view !== 'photoreal' && overlayRef.current) {
+        if (overlayRef.current !== 'loading') { try { map.removeControl(overlayRef.current); } catch {} }
+        overlayRef.current = null; setPhotoCredit('');
+      }
     };
     if (map.isStyleLoaded()) apply(); else map.once('idle', apply);
-  }, [threeD]);
+  }, [view]);
 
   // Init map once.
   useEffect(() => {
@@ -447,10 +477,23 @@ export default function CourseNavigation() {
         {isMapboxConfigured ? (
           <>
             <div ref={mapEl} className="absolute inset-0" />
-            <button onClick={() => setThreeD((v) => !v)}
-              className="absolute left-3 top-3 z-10 rounded-md border border-border bg-card/90 px-3 py-1.5 text-xs font-semibold shadow backdrop-blur hover:bg-card">
-              {threeD ? '2D' : '3D'} view
-            </button>
+            <div className="absolute left-3 top-3 z-10 flex overflow-hidden rounded-md border border-border bg-card/90 text-xs font-semibold shadow backdrop-blur">
+              {([['flat', '2D'], ['3d', '3D'], ['photoreal', 'Photoreal']] as const).map(([v, label]) => {
+                const disabled = v === 'photoreal' && !photorealAvailable;
+                return (
+                  <button key={v} disabled={disabled} onClick={() => setView(v)}
+                    title={disabled ? 'Set VITE_GOOGLE_PHOTOREAL_API_KEY to enable photorealistic 3D' : ''}
+                    className={`px-3 py-1.5 transition-colors ${view === v ? 'bg-primary/20 text-primary' : disabled ? 'cursor-not-allowed text-muted-foreground/40' : 'hover:bg-card'}`}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            {view === 'photoreal' && (
+              <div className="absolute bottom-1 right-1 z-10 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white/90">
+                {photoCredit || 'Imagery ©Google'}
+              </div>
+            )}
           </>
         ) : (
           <div className="grid h-full place-items-center p-6">
