@@ -11,7 +11,8 @@ import { extractHoles, courseSummary, type Hole } from '@/lib/holes';
 import { buildHoleModel, approachHeading, offsetToLonLat, lonLatToOffset } from '@/lib/holeStrategy';
 import { teeStrategies } from '@/lib/teeStrategy';
 import { optimizeStrategies, type Strategy } from '@/lib/shotModel';
-import { buildGeoPolys, optimizeGeo, dispersionEllipse, haversineYd, type LL, type GeoOpt } from '@/lib/geoEval';
+import { buildGeoPolys, optimizeGeo, dispersionEllipse, haversineYd, type LL, type GeoOpt, type Conditions } from '@/lib/geoEval';
+import { COURSE_CONDITIONS } from '@/lib/conditions';
 
 // Photoreal availability is a cheap env check; the deck.gl overlay itself is
 // dynamically imported only when the user switches to Photoreal (keeps deck.gl
@@ -123,11 +124,15 @@ export default function CourseNavigation({ mode = 'prepare' }: { mode?: CourseMo
   );
   const apprOffSD = approachClub?.offlineSD ?? profile.offlineSD;
   const apprDepthSD = approachClub?.depthSD ?? profile.depthSD;
+  // Tournament plays firmer/faster than a standard round; this feeds rollout and
+  // putting difficulty into the on-map Expected-Strokes math.
+  const condPreset = COURSE_CONDITIONS.find((c) => c.id === (mode === 'tournament' ? 'tournament' : 'standard')) ?? COURSE_CONDITIONS[1];
+  const cond: Conditions = { firmness: condPreset.firmness, stimp: condPreset.stimp };
   const geoOpt = useMemo<GeoOpt | null>(
     () => (startPt && pinLL && geoPolys
-      ? optimizeGeo(startPt, pinLL, geoPolys, apprOffSD, apprDepthSD, profile.division, { sgArg: profile.sgArg, sgPutting: profile.sgPutting })
+      ? optimizeGeo(startPt, pinLL, geoPolys, apprOffSD, apprDepthSD, profile.division, { sgArg: profile.sgArg, sgPutting: profile.sgPutting }, 220, cond)
       : null),
-    [startPt, pinLL, geoPolys, apprOffSD, apprDepthSD, profile.division, profile.sgArg, profile.sgPutting],
+    [startPt, pinLL, geoPolys, apprOffSD, apprDepthSD, profile.division, profile.sgArg, profile.sgPutting, cond.firmness, cond.stimp],
   );
   const geoFocus = geoOpt ? geoOpt[aimStrategy] : null;
   const focusDistanceYd = startPt && pinLL ? haversineYd(startPt, pinLL) : 0;
@@ -612,6 +617,7 @@ export default function CourseNavigation({ mode = 'prepare' }: { mode?: CourseMo
                       <span className="font-semibold" style={{ color: STRAT_COLOR[aimStrategy] }}>ES {geoFocus.es.toFixed(2)} · risk {geoFocus.cvar.toFixed(2)}</span>
                     </div>
                     <div className="mt-0.5 text-muted-foreground">Tap the map to move your start point ({Math.round(focusDistanceYd)} yd to pin).</div>
+                    <div className="mt-0.5 text-muted-foreground">Conditions: <span className="text-foreground">{condPreset.label}</span> · {condPreset.firmness} · Stimp {condPreset.stimp}</div>
                   </div>
                 )}
                 <div className="mt-1.5 grid grid-cols-[120px_1fr] gap-3">
