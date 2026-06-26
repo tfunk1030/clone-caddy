@@ -58,7 +58,12 @@ function cached(key, ttlMs, producer) {
 }
 
 async function fetchJson(url, opts = {}) {
-  const res = await fetch(url, { ...opts, headers: { 'User-Agent': UA, Accept: 'application/json', ...(opts.headers || {}) } });
+  const { timeoutMs, ...rest } = opts;
+  const res = await fetch(url, {
+    ...rest,
+    headers: { 'User-Agent': UA, Accept: 'application/json', ...(opts.headers || {}) },
+    signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
+  });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     const err = new Error(`Upstream ${res.status} for ${url.slice(0, 60)}: ${text.slice(0, 160)}`);
@@ -124,6 +129,7 @@ export async function overpass(ql) {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'data=' + encodeURIComponent(ql),
+        timeoutMs: 18000, // fail fast so a hung mirror doesn't exhaust the function budget
       });
     } catch (e) { lastErr = e; }
   }

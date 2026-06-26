@@ -4,7 +4,7 @@
   "buildCommand": "vite build",
   "outputDirectory": "dist",
   "functions": {
-    "api/*.js": { "maxDuration": 30 }
+    "api/*.js": { "maxDuration": 60 }
   },
   "rewrites": [
     { "source": "/((?!api/|assets/|.*\\.).*)", "destination": "/index.html" }

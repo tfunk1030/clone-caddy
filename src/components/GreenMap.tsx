@@ -7,14 +7,24 @@ const OUTCOME_COLOR: Record<string, string> = {
   water: '#3b82f6',
 };
 
+// Blue → green → red ramp for the expected-strokes surface (low = better = blue).
+function esColor(t: number): string {
+  const x = Math.max(0, Math.min(1, t));
+  const r = Math.round(x < 0.5 ? 60 + x * 2 * 140 : 200);
+  const g = Math.round(x < 0.5 ? 180 : 180 - (x - 0.5) * 2 * 150);
+  const b = Math.round(x < 0.5 ? 200 - x * 2 * 120 : 70);
+  return `rgb(${r},${g},${b})`;
+}
+
 // Top-down view. Pin at origin; x = lateral (right +), y = depth (long +).
 export function GreenMap({
-  model, aim, landings, span = 35,
+  model, aim, landings, span = 35, surface,
 }: {
   model: GreenModel;
   aim: { x: number; y: number };
   landings: SimResult['landings'];
   span?: number; // yards from center to edge
+  surface?: { x: number; y: number; es: number }[]; // ES heatmap over the aim grid
 }) {
   const S = 360; // svg size px
   const c = S / 2;
@@ -22,8 +32,22 @@ export function GreenMap({
   const X = (x: number) => c + x * k;
   const Y = (y: number) => c - y * k; // screen y inverted
 
+  // Normalize the ES surface for coloring.
+  let lo = 0, hi = 1, cell = 4;
+  if (surface && surface.length > 1) {
+    lo = Math.min(...surface.map((s) => s.es));
+    hi = Math.max(...surface.map((s) => s.es));
+    const xs = [...new Set(surface.map((s) => s.x))].sort((a, b) => a - b);
+    cell = xs.length > 1 ? (xs[1] - xs[0]) * k : 4;
+  }
+
   return (
     <svg viewBox={`0 0 ${S} ${S}`} className="h-full w-full rounded-lg border border-border bg-[#0a1420]">
+      {/* expected-strokes surface heatmap */}
+      {surface && surface.map((s, i) => (
+        <rect key={`s${i}`} x={X(s.x) - cell / 2} y={Y(s.y) - cell / 2} width={cell + 0.5} height={cell + 0.5}
+          fill={esColor(hi > lo ? (s.es - lo) / (hi - lo) : 0)} fillOpacity={0.5} />
+      ))}
       {/* range rings */}
       {[10, 20, 30].map((r) => (
         <circle key={r} cx={c} cy={c} r={r * k} fill="none" stroke="var(--border)" strokeDasharray="3 5" />

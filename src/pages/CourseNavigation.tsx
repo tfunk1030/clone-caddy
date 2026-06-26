@@ -11,6 +11,8 @@ import { extractHoles, courseSummary, type Hole } from '@/lib/holes';
 import { buildHoleModel, approachHeading, offsetToLonLat, lonLatToOffset } from '@/lib/holeStrategy';
 import { teeStrategies } from '@/lib/teeStrategy';
 import { optimizeAim } from '@/lib/shotModel';
+import { buildBag, recommendClub } from '@/lib/clubs';
+import { shotConditions } from '@/lib/playing';
 import { GreenMap } from '@/components/GreenMap';
 import { useProfile } from '@/context/ProfileContext';
 
@@ -71,6 +73,11 @@ export default function CourseNavigation() {
     () => (selectedHole ? teeStrategies(selectedHole, elements, profile.drivingDistance) : null),
     [selectedHole, elements, profile.drivingDistance],
   );
+  // Recommend a club for each tee line and for the approach (plays-like distance).
+  const bag = useMemo(() => buildBag(profile.drivingDistance, profile.offlineSD, profile.depthSD),
+    [profile.drivingDistance, profile.offlineSD, profile.depthSD]);
+  const approachYds = tee?.lines.find((l) => l.label === 'Optimal')?.remainingYds ?? selectedHole?.yards ?? 0;
+  const approachClub = approachYds ? recommendClub(bag, shotConditions(approachYds).playsLike) : null;
 
   // Draw the tee-shot lines on the map.
   useEffect(() => {
@@ -362,7 +369,7 @@ export default function CourseNavigation() {
                     <div key={L.label} className="flex items-center justify-between text-xs">
                       <span className="flex items-center gap-1.5">
                         <span className="h-2.5 w-2.5 rounded-full" style={{ background: L.label === 'Aggressive' ? '#ef4444' : L.label === 'Conservative' ? '#3b82f6' : '#10d98a' }} />
-                        {L.label}
+                        {L.label} <span className="text-muted-foreground">· {recommendClub(bag, L.carry).name}</span>
                       </span>
                       <span className="tabular-nums text-muted-foreground">{L.carry} yd · {L.remainingYds} left · ES {L.es.toFixed(2)}</span>
                     </div>
@@ -371,7 +378,10 @@ export default function CourseNavigation() {
               </div>
             )}
 
-            <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Approach</div>
+            <div className="mt-3 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <span>Approach</span>
+              {approachClub && <span className="font-normal normal-case">{approachClub.name} · ~{approachYds} yd</span>}
+            </div>
             <div className="mt-1.5 grid grid-cols-[120px_1fr] gap-3">
               <div className="aspect-square"><GreenMap model={strategy.model} aim={opt.best} landings={opt.result.landings} span={Math.max(28, strategy.model.greenRadius + 14)} /></div>
               <div className="space-y-1.5 text-sm">
