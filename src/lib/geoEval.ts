@@ -9,6 +9,12 @@
 
 import { expectedStrokesAt, type Division, type ShortGame } from './expectedStrokes';
 import { makeSamples, type Strategy } from './shotModel';
+import { ROLLOUT_FRACTION, stimpPuttFactor, type Firmness } from './conditions';
+
+// Course conditions that affect on-map ES: firmness adds rollout (the ball
+// releases forward past its carry) and green speed (stimp) scales putting.
+export type Conditions = { firmness: Firmness; stimp: number };
+const ROLLOUT_BASE = 18; // yards of rollout at a 150-yd reference shot, ×firmness fraction
 
 export type LL = [number, number]; // [lon, lat]
 type Geom = { lat: number; lon: number }[];
@@ -112,8 +118,9 @@ export function offset(origin: LL, brng: number, forwardYd: number, rightYd: num
 
 // --- aim evaluation ---
 const PENALTY = 1; // water/OB stroke penalty (added on top of the rough lie)
-function esFromLie(lie: Lie, distYd: number, division: Division, sg?: ShortGame): number {
+function esFromLie(lie: Lie, distYd: number, division: Division, sg: ShortGame | undefined, puttFactor: number): number {
   if (lie === 'water') return PENALTY + expectedStrokesAt(distYd, 'rough', division, sg);
+  if (lie === 'green') return expectedStrokesAt(distYd, 'green', division, sg) * puttFactor;
   return expectedStrokesAt(distYd, lie, division, sg);
 }
 
@@ -124,17 +131,21 @@ export type AimEval = { mean: number; cvar: number; sorted: number[]; breakdown:
 export function evaluateAim(
   start: LL, aim: LL, pin: LL, polys: GeoPolys,
   sigmaOffYd: number, sigmaDepthYd: number,
-  samples: { zx: number; zy: number }[], division: Division, sg?: ShortGame,
+  samples: { zx: number; zy: number }[], division: Division, sg?: ShortGame, cond?: Conditions,
 ): AimEval {
   const brng = bearing(start, aim);
+  // Firmness rollout: the ball releases forward along the shot line after landing.
+  const shotLenYd = haversineYd(start, aim);
+  const rolloutYd = cond ? ROLLOUT_FRACTION[cond.firmness] * ROLLOUT_BASE * (shotLenYd / 150) : 0;
+  const puttFactor = cond ? stimpPuttFactor(cond.stimp) : 1;
   const out = new Array<number>(samples.length);
   const counts: Record<string, number> = { green: 0, fairway: 0, tee: 0, rough: 0, sand: 0, water: 0 };
   for (let i = 0; i < samples.length; i++) {
     const s = samples[i];
-    const land = offset(aim, brng, s.zy * sigmaDepthYd, s.zx * sigmaOffYd);
+    const land = offset(aim, brng, s.zy * sigmaDepthYd + rolloutYd, s.zx * sigmaOffYd);
     const lie = classifyPoint(land, polys);
     counts[lie]++;
-    out[i] = 1 + esFromLie(lie, haversineYd(land, pin), division, sg);
+    out[i] = 1 + esFromLie(lie, haversineYd(land, pin), division, sg, puttFactor);
   }
   const n = samples.length;
   const mean = out.reduce((a, b) => a + b, 0) / n;
@@ -177,18 +188,18 @@ export type GeoOpt = {
 export function optimizeGeo(
   start: LL, pin: LL, polys: GeoPolys,
   sigmaOffYd: number, sigmaDepthYd: number,
-  division: Division, sg?: ShortGame, nSamples = 220,
+  division: Division, sg?: ShortGame, nSamples = 220, cond?: Conditions,
 ): GeoOpt {
   const samples = makeSamples(nSamples);
   const brng = bearing(start, pin);
-  const pinES = evaluateAim(start, pin, pin, polys, sigmaOffYd, sigmaDepthYd, samples, division, sg).mean;
+  const pinES = evaluateAim(start, pin, pin, polys, sigmaOffYd, sigmaDepthYd, samples, division, sg, cond).mean;
 
   type Cell = { aim: LL; ev: AimEval };
   const cells: Cell[] = [];
   for (let lat = -24; lat <= 24; lat += 3) {       // lateral yards (right +)
     for (let dep = -18; dep <= 12; dep += 3) {     // depth yards (long +, short −)
       const aim = offset(pin, brng, dep, lat);
-      const ev = evaluateAim(start, aim, pin, polys, sigmaOffYd, sigmaDepthYd, samples, division, sg);
+      const ev = evaluateAim(start, aim, pin, polys, sigmaOffYd, sigmaDepthYd, samples, division, sg, cond);
       cells.push({ aim, ev });
     }
   }
