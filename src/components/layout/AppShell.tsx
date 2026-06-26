@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 
 const NAV = [
   { to: '/app', label: 'Overview', icon: LayoutDashboard, end: true },
-  { to: '/app/course', label: 'Course', icon: Map },
+  { to: '/app/course', label: 'Prepare', icon: Map },
   { to: '/app/dispersion', label: 'Dispersion', icon: Target },
   { to: '/app/expected-strokes', label: 'Expected Strokes', icon: Crosshair },
   { to: '/app/conditions', label: 'Conditions', icon: CloudSun },
