@@ -23,6 +23,7 @@ console.log('CADD-AI structure check\n');
   .forEach((p) => mustExist(`src/pages/${p}.tsx`));
 ['src/lib/expectedStrokes.ts', 'src/lib/shotModel.ts', 'src/components/GreenMap.tsx',
  'src/lib/holes.ts', 'src/lib/holeStrategy.ts', 'src/lib/teeStrategy.ts',
+ 'src/lib/clubs.ts', 'src/lib/playing.ts',
  'src/context/ProfileContext.tsx'].forEach(mustExist);
 
 for (const fn of ['health', 'geocode', 'weather', 'conditions', 'course']) {

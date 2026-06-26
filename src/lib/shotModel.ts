@@ -15,7 +15,12 @@ export type GreenModel = {
   bunker?: { x: number; y: number; r: number } | null;
   water?: { side: 'L' | 'R' | 'long' | 'short'; line: number } | null; // half-plane
   penaltyStrokes: number;       // strokes added for finding water/OB
+  slopeSeverity?: number;       // green slope 0..5 — harder putts
 };
+
+// Wind effect applied to a shot: a mean landing push (yards) plus a dispersion
+// multiplier. Produced by playing.ts (shotConditions).
+export type Wind = { driftX?: number; driftY?: number; widen?: number };
 
 export type Outcome = 'green' | 'rough' | 'sand' | 'water';
 
@@ -37,7 +42,10 @@ export function classify(p: { x: number; y: number }, g: GreenModel): { outcome:
 }
 
 function strokesFrom(outcome: Outcome, remYds: number, g: GreenModel): number {
-  if (outcome === 'green') return expectedStrokes('green', remYds * 3); // yards→feet putt
+  if (outcome === 'green') {
+    const slopeFactor = 1 + (g.slopeSeverity || 0) * 0.03; // steeper greens → harder putts
+    return expectedStrokes('green', remYds * 3) * slopeFactor; // yards→feet putt
+  }
   if (outcome === 'water') return g.penaltyStrokes + expectedStrokes('rough', remYds);
   const lie: Lie = outcome === 'sand' ? 'sand' : 'rough';
   return expectedStrokes(lie, remYds);
@@ -74,12 +82,14 @@ export function simulate(
   g: GreenModel,
   samples: { zx: number; zy: number }[],
   keepLandings = false,
+  wind: Wind = {},
 ): SimResult {
   let total = 0;
   const counts: Record<Outcome, number> = { green: 0, rough: 0, sand: 0, water: 0 };
   const landings: SimResult['landings'] = [];
+  const wx = wind.driftX || 0, wy = wind.driftY || 0, mul = wind.widen || 1;
   for (const s of samples) {
-    const p = { x: aim.x + s.zx * offlineSD, y: aim.y + s.zy * depthSD };
+    const p = { x: aim.x + s.zx * offlineSD * mul + wx, y: aim.y + s.zy * depthSD * mul + wy };
     const { outcome, remYds } = classify(p, g);
     counts[outcome]++;
     total += 1 + strokesFrom(outcome, remYds, g); // +1 for this shot
@@ -99,19 +109,22 @@ export type OptResult = {
   pinES: number;          // ES when aiming straight at the pin
   saved: number;          // pinES - bestES
   result: SimResult;      // full sim (with landings) at best aim
+  surface: { x: number; y: number; es: number }[]; // ES over the aim grid (heatmap)
 };
 
-export function optimizeAim(offlineSD: number, depthSD: number, g: GreenModel, nSamples = 600): OptResult {
+export function optimizeAim(offlineSD: number, depthSD: number, g: GreenModel, nSamples = 600, wind: Wind = {}): OptResult {
   const samples = makeSamples(nSamples);
-  const pinES = simulate({ x: 0, y: 0 }, offlineSD, depthSD, g, samples).es;
+  const pinES = simulate({ x: 0, y: 0 }, offlineSD, depthSD, g, samples, false, wind).es;
   let best = { x: 0, y: 0 };
   let bestES = Infinity;
+  const surface: { x: number; y: number; es: number }[] = [];
   for (let ax = -22; ax <= 22; ax += 2) {
     for (let ay = -16; ay <= 16; ay += 2) {
-      const es = simulate({ x: ax, y: ay }, offlineSD, depthSD, g, samples).es;
+      const es = simulate({ x: ax, y: ay }, offlineSD, depthSD, g, samples, false, wind).es;
+      surface.push({ x: ax, y: ay, es });
       if (es < bestES) { bestES = es; best = { x: ax, y: ay }; }
     }
   }
-  const result = simulate(best, offlineSD, depthSD, g, samples, true);
-  return { best, bestES, pinES, saved: pinES - bestES, result };
+  const result = simulate(best, offlineSD, depthSD, g, samples, true, wind);
+  return { best, bestES, pinES, saved: pinES - bestES, result, surface };
 }
