@@ -295,22 +295,75 @@ function normalizeLie(lie?: string): Lie {
   }
 }
 
+// --- short-game strokes-gained skill modifier (faithful port) ---
+//
+// On top of the base polynomials (which are PGA-Tour average), a player's own
+// strokes-gained around-the-green and putting shift ES for chips/pitches and
+// putts. Tour average is sgArg = sgPutting = 0, so the default is a no-op: the
+// base model already represents an average PGA-Tour short game. A positive SG
+// (better than tour average) lowers ES; negative raises it.
+const SG_ARG_FULL_YDS = 45;       // full ARG weight at/under this distance
+const SG_ARG_MAX_YDS = 55;        // ARG modifier fades to zero by here
+const SG_DEFAULT_ARG_SHOTS = 4.5; // tour-typical around-green shots per round
+const SG_DEFAULT_PUTTS = 32;      // tour-typical putts per round
+
+export type ShortGame = {
+  sgArg?: number;            // strokes gained around-the-green, per round (tour avg 0)
+  sgPutting?: number;        // strokes gained putting, per round (tour avg 0)
+  argShotsPerRound?: number; // optional; defaults to 4.5
+  puttsPerRound?: number;    // optional; defaults to 32
+};
+
+// Distance weight for the around-the-green modifier (1 ≤45 yd, smoothstep to 0 by 55 yd).
+function argWeight(d: number): number {
+  if (d <= SG_ARG_FULL_YDS) return 1;
+  if (d >= SG_ARG_MAX_YDS) return 0;
+  const n = (d - SG_ARG_FULL_YDS) / (SG_ARG_MAX_YDS - SG_ARG_FULL_YDS);
+  return 1 - n * n * (3 - 2 * n);
+}
+// Per-shot ES delta from a per-round strokes-gained figure.
+function sgPerShot(sg: number | undefined, shotsPerRound: number | undefined, fallback: number): number {
+  if (sg == null) return 0;
+  const s = shotsPerRound && shotsPerRound > 0 ? shotsPerRound : fallback;
+  return -(sg / s);
+}
+
 /**
  * Expected strokes to hole out — the faithful CADD-AI model.
  * @param distanceYds distance to the hole, in YARDS for every lie (green too).
  * @param lie         lie type (water counts as rough + a 1-stroke penalty).
  * @param division    player population (default PGA Tour).
+ * @param sg          optional strokes-gained short-game skill (default = tour average, a no-op).
  */
-export function expectedStrokesAt(distanceYds: number, lie: Lie | string = 'fairway', division: Division | string = 'pga-tour'): number {
-  const div = normalizeDivision(typeof division === 'string' ? division : division);
+export function expectedStrokesAt(
+  distanceYds: number,
+  lie: Lie | string = 'fairway',
+  division: Division | string = 'pga-tour',
+  sg?: ShortGame,
+): number {
+  const div = normalizeDivision(division);
   const baseline = DIVISION_BASELINE[div];
   const cleanLie = normalizeLie(lie);
   const d = Math.max(0, Number.isFinite(distanceYds) ? distanceYds : 0);
+
+  let es: number;
   if (cleanLie === 'water') {
-    const es = scaleForDivision(div, lieES(baseline, 0, d, 'rough'));
-    return Math.max(1, es + 1);
+    es = scaleForDivision(div, lieES(baseline, 0, d, 'rough')) + 1;
+  } else {
+    es = scaleForDivision(div, lieES(baseline, 0, d, cleanLie));
   }
-  return Math.max(1, scaleForDivision(div, lieES(baseline, 0, d, cleanLie)));
+  es = Math.max(1, es);
+
+  // Strokes-gained skill: putting on the green, around-the-green for short non-green shots.
+  if (sg) {
+    if (cleanLie === 'green') {
+      es += sgPerShot(sg.sgPutting, sg.puttsPerRound, SG_DEFAULT_PUTTS);
+    } else if (cleanLie !== 'water' && d <= SG_ARG_MAX_YDS) {
+      es += sgPerShot(sg.sgArg, sg.argShotsPerRound, SG_DEFAULT_ARG_SHOTS) * argWeight(d);
+    }
+    es = Math.max(1, es);
+  }
+  return es;
 }
 
 /**
