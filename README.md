@@ -30,7 +30,7 @@ and the hazards.
 
 ### The engines under the hood
 
-- **Expected strokes** (`src/lib/expectedStrokes.ts`) — PGA-Tour strokes-to-hole-out baseline (Broadie) by lie and distance.
+- **Expected strokes** (`src/lib/expectedStrokes.ts`) — strokes-to-hole-out from a strokes-gained model: degree-6 polynomial fits of tour strokes vs. distance per lie (fairway/rough/sand/recovery/tee/green), with LPGA "core shift" polynomials, smooth extrapolation past the observed-distance ranges, and per-division scaling (PGA/LPGA Tour, college, junior).
 - **Shot model + aim optimizer** (`src/lib/shotModel.ts`) — variance-reduced Monte-Carlo sampling of your dispersion, landing-point classification against a green/bunker/water model, and a grid search for the lowest-ES aim.
 - **Hole extraction** (`src/lib/holes.ts`) — derives hole number, par, yardage, centerline and green from OSM golf features.
 - **Per-hole strategy** (`src/lib/holeStrategy.ts`) — projects a hole's real greenside bunkers/water into the approach frame and builds the ES model for the selected pin position.

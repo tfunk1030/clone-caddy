@@ -66,8 +66,8 @@ export default function CourseNavigation() {
     [selectedHole, elements, pinOffset.x, pinOffset.y],
   );
   const opt = useMemo(
-    () => (strategy ? optimizeAim(profile.offlineSD, profile.depthSD, strategy.model, 500) : null),
-    [strategy, profile.offlineSD, profile.depthSD],
+    () => (strategy ? optimizeAim(profile.offlineSD, profile.depthSD, { ...strategy.model, division: profile.division }, 500) : null),
+    [strategy, profile.offlineSD, profile.depthSD, profile.division],
   );
   const tee = useMemo(
     () => (selectedHole ? teeStrategies(selectedHole, elements, profile.drivingDistance) : null),

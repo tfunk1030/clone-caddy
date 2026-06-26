@@ -1,10 +1,12 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import type { Division } from '@/lib/expectedStrokes';
 
 // Shared player profile (dispersion + strategy) used across Dispersion,
 // Expected Strokes, and per-hole strategy. Persisted to localStorage.
-export type Profile = { offlineSD: number; depthSD: number; drivingDistance: number; preset: string };
+// `division` selects which strokes-gained population the ES model is anchored to.
+export type Profile = { offlineSD: number; depthSD: number; drivingDistance: number; preset: string; division: Division };
 
-const DEFAULT: Profile = { offlineSD: 8, depthSD: 7, drivingDistance: 260, preset: 'Standard' };
+const DEFAULT: Profile = { offlineSD: 8, depthSD: 7, drivingDistance: 260, preset: 'Standard', division: 'pga-tour' };
 const KEY = 'caddai.profile';
 
 type Ctx = { profile: Profile; setProfile: (p: Partial<Profile>) => void };

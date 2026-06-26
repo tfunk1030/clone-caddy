@@ -108,7 +108,7 @@ export type TeeLine = {
 };
 
 function strokesFromLie(lie: Lie, distToGreenYd: number): number {
-  if (lie === 'green') return expectedStrokes('green', Math.min(distToGreenYd, 60) * 3);
+  if (lie === 'green') return expectedStrokes('green', Math.min(distToGreenYd, 60));
   if (lie === 'water') return 1 + expectedStrokes('rough', distToGreenYd);
   const map: Record<Lie, any> = { fairway: 'fairway', rough: 'rough', sand: 'sand', green: 'green', water: 'rough' };
   return expectedStrokes(map[lie], distToGreenYd);
