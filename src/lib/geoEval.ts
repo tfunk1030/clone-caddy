@@ -227,6 +227,56 @@ export function optimizeGeo(
   };
 }
 
+// Walk `distYd` along a centerline path; return the point and local heading.
+export function walkPath(path: LL[], distYd: number): { pt: LL; heading: number } {
+  let acc = 0;
+  for (let i = 1; i < path.length; i++) {
+    const seg = haversineYd(path[i - 1], path[i]);
+    if (acc + seg >= distYd) {
+      const t = seg ? (distYd - acc) / seg : 0;
+      const pt: LL = [path[i - 1][0] + (path[i][0] - path[i - 1][0]) * t, path[i - 1][1] + (path[i][1] - path[i - 1][1]) * t];
+      return { pt, heading: bearing(path[i - 1], path[i]) };
+    }
+    acc += seg;
+  }
+  const n = path.length;
+  return { pt: path[n - 1], heading: bearing(path[n - 2] ?? path[0], path[n - 1]) };
+}
+
+// Tee-shot optimizer: search drive landing aims around a landing zone down the
+// hole, evaluating strokes-to-hole-out from each landing to the pin (so it
+// accounts for the remaining approach). Same three strategies as the approach.
+export function optimizeGeoTee(
+  tee: LL, landingCenter: LL, pin: LL, polys: GeoPolys, headingRad: number,
+  sigmaOffYd: number, sigmaDepthYd: number,
+  division: Division, sg?: ShortGame, nSamples = 220, cond?: Conditions,
+): GeoOpt {
+  const samples = makeSamples(nSamples);
+  const teeES = evaluateAim(tee, landingCenter, pin, polys, sigmaOffYd, sigmaDepthYd, samples, division, sg, cond).mean;
+
+  type Cell = { aim: LL; ev: AimEval };
+  const cells: Cell[] = [];
+  for (let lat = -35; lat <= 35; lat += 5) {       // lateral yards across the fairway
+    for (let dep = -25; dep <= 15; dep += 5) {     // carry variation (long +, short −)
+      const aim = offset(landingCenter, headingRad, dep, lat);
+      cells.push({ aim, ev: evaluateAim(tee, aim, pin, polys, sigmaOffYd, sigmaDepthYd, samples, division, sg, cond) });
+    }
+  }
+  let opt = cells[0];
+  for (const c of cells) if (c.ev.mean < opt.ev.mean) opt = c;
+  const N = opt.ev.mean;
+  let agg = cells[0]; let aggS = -Infinity;
+  for (const c of cells) { const u = upside(c.ev.sorted, N); if (u > aggS) { aggS = u; agg = c; } }
+  let safe = cells[0]; let safeS = Infinity;
+  for (const c of cells) { if (c.ev.cvar < safeS) { safeS = c.ev.cvar; safe = c; } }
+
+  const mk = (c: Cell, strategy: Strategy): GeoStrategyAim => ({ strategy, aim: c.aim, es: c.ev.mean, cvar: c.ev.cvar, breakdown: c.ev.breakdown });
+  return {
+    optimal: mk(opt, 'optimal'), aggressive: mk(agg, 'aggressive'), safe: mk(safe, 'safe'),
+    pinES: teeES, ellipse: dispersionEllipse(tee, opt.aim, sigmaOffYd, sigmaDepthYd),
+  };
+}
+
 // A ~1.6σ dispersion ellipse (GeoJSON ring) around an aim, oriented along start→aim.
 export function dispersionEllipse(start: LL, aim: LL, sigmaOffYd: number, sigmaDepthYd: number, k = 1.6, steps = 48): LL[] {
   const brng = bearing(start, aim);
