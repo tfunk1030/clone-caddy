@@ -99,7 +99,7 @@ function walkAlong(path: LL[], distYd: number): { pt: LL; heading: number } {
 }
 
 export type TeeLine = {
-  label: 'Aggressive' | 'Optimal' | 'Conservative';
+  label: 'Aggressive' | 'Optimal' | 'Safe';
   carry: number;            // yards down the line
   target: LL;               // landing point [lon,lat]
   es: number;               // expected strokes to hole out (incl. the tee shot)
@@ -155,5 +155,5 @@ export function teeStrategies(hole: Hole, elements: El[], drivingDistance: numbe
   const mk = (c: typeof optimal, label: TeeLine['label']): TeeLine => ({
     label, carry: c.carry, target: c.target, es: c.es, remainingYds: Math.round(c.remainingYds), breakdown: c.breakdown,
   });
-  return { lines: [mk(aggressive, 'Aggressive'), mk(optimal, 'Optimal'), mk(conservative, 'Conservative')] };
+  return { lines: [mk(aggressive, 'Aggressive'), mk(optimal, 'Optimal'), mk(conservative, 'Safe')] };
 }

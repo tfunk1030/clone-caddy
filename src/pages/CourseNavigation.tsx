@@ -378,13 +378,13 @@ export default function CourseNavigation({ mode = 'prepare' }: { mode?: CourseMo
         layout: { 'line-cap': 'round' },
         paint: {
           'line-width': 3.5,
-          'line-color': ['match', ['get', 'kind'], 'Aggressive', '#ef4444', 'Conservative', '#3b82f6', '#10d98a'],
+          'line-color': ['match', ['get', 'kind'], 'Aggressive', '#ef4444', 'Safe', '#3b82f6', '#10d98a'],
         },
       });
       map.addLayer({
         id: 'tee-lines-end', type: 'circle', source: 'tee-lines',
         filter: ['==', ['geometry-type'], 'Point'],
-        paint: { 'circle-radius': 5, 'circle-color': ['match', ['get', 'kind'], 'Aggressive', '#ef4444', 'Conservative', '#3b82f6', '#10d98a'], 'circle-stroke-width': 1.5, 'circle-stroke-color': '#fff' },
+        paint: { 'circle-radius': 5, 'circle-color': ['match', ['get', 'kind'], 'Aggressive', '#ef4444', 'Safe', '#3b82f6', '#10d98a'], 'circle-stroke-width': 1.5, 'circle-stroke-color': '#fff' },
       });
 
       // Prepare overlay: dispersion ellipse, aim line, and the three optimizer aims.
@@ -638,7 +638,7 @@ export default function CourseNavigation({ mode = 'prepare' }: { mode?: CourseMo
                   {tee.lines.map((L) => (
                     <div key={L.label} className="flex items-center justify-between text-xs">
                       <span className="flex items-center gap-1.5">
-                        <span className="h-2.5 w-2.5 rounded-full" style={{ background: L.label === 'Aggressive' ? '#ef4444' : L.label === 'Conservative' ? '#3b82f6' : '#10d98a' }} />
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ background: L.label === 'Aggressive' ? '#ef4444' : L.label === 'Safe' ? '#3b82f6' : '#10d98a' }} />
                         {L.label} <span className="text-muted-foreground">· {recommendClub(bag, L.carry).name}</span>
                       </span>
                       <span className="tabular-nums text-muted-foreground">{L.carry} yd · {L.remainingYds} left · ES {L.es.toFixed(2)}</span>
@@ -667,7 +667,7 @@ export default function CourseNavigation({ mode = 'prepare' }: { mode?: CourseMo
                 {geoFocusEval && (
                   <div className="mt-1.5 rounded-md border border-border bg-background/60 px-2 py-1.5 text-[11px]">
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">{userAim ? 'Your aim' : 'Optimizer target'} (real polygons)</span>
+                      <span className="text-muted-foreground">ES from start · {userAim ? 'your aim' : 'optimizer'}</span>
                       <span className="font-semibold" style={{ color: userAim ? '#fff' : STRAT_COLOR[aimStrategy] }}>ES {geoFocusEval.es.toFixed(2)} · risk {geoFocusEval.cvar.toFixed(2)}</span>
                     </div>
                     <div className="mt-0.5 text-muted-foreground">{Math.round(focusDistanceYd)} yd start → pin. Use “Set Aim/Start/Pin” above to edit on the map.</div>
