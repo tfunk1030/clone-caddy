@@ -199,7 +199,7 @@ export default function ExpectedStrokes() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Optimal targets</CardTitle>
+              <CardTitle>Expected Strokes Surface</CardTitle>
               <CardDescription>Heatmap = expected strokes by aim point (blue = best). Three optimizers are marked; the white crosshair is the selected <span style={{ color: STRAT_META[strategy].color }}>{STRAT_META[strategy].label}</span> target, {aimDesc} (vs {opt.pinES.toFixed(2)} aiming at the pin).</CardDescription>
             </CardHeader>
             <CardContent>
