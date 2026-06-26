@@ -26,6 +26,7 @@ export const GREEN_SPEEDS: { label: string; stimp: number }[] = [
 export const COURSE_CONDITIONS: { id: string; label: string; description: string; firmness: Firmness; stimp: number }[] = [
   { id: 'no_roll', label: 'No Roll', description: 'No ball roll · Stimp 10 · Normal difficulty', firmness: 'No Roll', stimp: 10 },
   { id: 'standard', label: 'Standard', description: 'Medium firmness · Stimp 10 · Normal conditions', firmness: 'Medium', stimp: 10 },
+  { id: 'tournament', label: 'Tournament', description: 'Hard rough/recovery/trees · Stimp 11 · Soft off-fairway lies', firmness: 'Medium', stimp: 11 },
   { id: 'us_open', label: 'US Open', description: 'Firm fairways · Stimp 13 · Brutal rough & hazards', firmness: 'Firm', stimp: 13 },
   { id: 'links', label: 'Links', description: 'Very firm ground · Stimp 8 · Penal bunkers & hazards', firmness: 'Very Firm', stimp: 8 },
 ];

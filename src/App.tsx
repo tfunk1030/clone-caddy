@@ -9,6 +9,9 @@ import ExpectedStrokes from '@/pages/ExpectedStrokes';
 import Conditions from '@/pages/Conditions';
 import Forecast from '@/pages/Forecast';
 import Rankings from '@/pages/Rankings';
+import Play from '@/pages/Play';
+import Tournament from '@/pages/Tournament';
+import DecadeLabs from '@/pages/DecadeLabs';
 import Settings from '@/pages/Settings';
 
 function Protected({ children }: { children: JSX.Element }) {
@@ -31,6 +34,9 @@ export default function App() {
             <Route path="conditions" element={<Conditions />} />
             <Route path="forecast" element={<Forecast />} />
             <Route path="rankings" element={<Rankings />} />
+            <Route path="play" element={<Play />} />
+            <Route path="tournament" element={<Tournament />} />
+            <Route path="decade-labs" element={<DecadeLabs />} />
             <Route path="settings" element={<Settings />} />
           </Route>
           <Route path="*" element={<Navigate to="/app" replace />} />

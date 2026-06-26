@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Map, Target, Crosshair, CloudSun, Wind, Trophy, Settings as SettingsIcon,
-  Menu, X, LogOut, User,
+  LayoutDashboard, Map, Target, Crosshair, CloudSun, Wind, Trophy, ListOrdered, PlayCircle, Users,
+  Settings as SettingsIcon, Menu, X, LogOut, User,
 } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -17,7 +17,10 @@ const NAV = [
   { to: '/app/expected-strokes', label: 'Expected Strokes', icon: Crosshair },
   { to: '/app/conditions', label: 'Conditions', icon: CloudSun },
   { to: '/app/forecast', label: 'Wind & Forecast', icon: Wind },
-  { to: '/app/rankings', label: 'Rankings', icon: Trophy },
+  { to: '/app/rankings', label: 'Rankings', icon: ListOrdered },
+  { to: '/app/play', label: 'Play', icon: PlayCircle },
+  { to: '/app/tournament', label: 'Tournament', icon: Trophy },
+  { to: '/app/decade-labs', label: 'DECADE Labs', icon: Users },
   { to: '/app/settings', label: 'Settings', icon: SettingsIcon },
 ];
 
