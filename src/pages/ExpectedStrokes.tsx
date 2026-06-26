@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Label } from '@/components/ui/input';
 import { GreenMap } from '@/components/GreenMap';
-import { optimizeAim, type GreenModel } from '@/lib/shotModel';
+import { optimizeStrategies, type GreenModel, type Strategy } from '@/lib/shotModel';
 import { ES_NOTE, DIVISIONS } from '@/lib/expectedStrokes';
 import { buildBag, recommendClub } from '@/lib/clubs';
 import { shotConditions } from '@/lib/playing';
@@ -47,6 +47,7 @@ export default function ExpectedStrokes() {
   const [pin, setPin] = useState('Tucked Left');
   const [water, setWater] = useState('Right');
   const [bunker, setBunker] = useState(true);
+  const [strategy, setStrategy] = useState<Strategy>('optimal');
 
   const bag = useMemo(() => buildBag(profile.drivingDistance, profile.offlineSD, profile.depthSD), [profile.drivingDistance, profile.offlineSD, profile.depthSD]);
   const cond = useMemo(() => shotConditions(distance, {
@@ -63,11 +64,22 @@ export default function ExpectedStrokes() {
   }), [greenRadius, pin, water, bunker, slope, profile.division, profile.sgArg, profile.sgPutting]);
 
   const wind = useMemo(() => ({ driftX: cond.driftX, widen: cond.widen }), [cond.driftX, cond.widen]);
-  const opt = useMemo(() => optimizeAim(club.offlineSD, club.depthSD, model, 700, wind),
+  const opt = useMemo(() => optimizeStrategies(club.offlineSD, club.depthSD, model, 500, wind),
     [club.offlineSD, club.depthSD, model, wind]);
 
+  // The three optimizers, plus the focused one (selected by the strategy chips).
+  const STRAT_META: Record<Strategy, { label: string; color: string; blurb: string }> = {
+    aggressive: { label: 'Aggressive', color: '#ef4444', blurb: 'Most upside — chases the close approach.' },
+    optimal: { label: 'Optimal', color: '#37c871', blurb: 'Lowest average score.' },
+    safe: { label: 'Safe', color: '#3b82f6', blurb: 'Lowest risk — avoids the big numbers (CVaR).' },
+  };
+  const focus = opt[strategy];
+  const markers = (['aggressive', 'optimal', 'safe'] as Strategy[]).map((s) => ({
+    x: opt[s].aim.x, y: opt[s].aim.y, color: STRAT_META[s].color, label: STRAT_META[s].label[0],
+  }));
+
   const aimDesc = (() => {
-    const { x, y } = opt.best;
+    const { x, y } = focus.aim;
     if (Math.abs(x) < 2 && Math.abs(y) < 2) return 'straight at the pin';
     const lat = x === 0 ? '' : `${Math.abs(x)} yd ${x > 0 ? 'right' : 'left'}`;
     const dep = y === 0 ? '' : `${Math.abs(y)} yd ${y > 0 ? 'long' : 'short'}`;
@@ -143,7 +155,7 @@ export default function ExpectedStrokes() {
         </Card>
 
         <div className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2">
             <Card><CardContent className="p-4">
               <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Club</div>
               <div className="mt-1 font-display text-2xl font-bold text-primary">{club.name}</div>
@@ -154,27 +166,37 @@ export default function ExpectedStrokes() {
               <div className="mt-1 font-display text-2xl font-bold">{cond.playsLike.toFixed(0)} yd</div>
               <div className="text-xs text-muted-foreground">{distance} yd raw</div>
             </CardContent></Card>
-            <Card><CardContent className="p-4">
-              <div className="text-[11px] uppercase tracking-wide text-muted-foreground">ES (optimal)</div>
-              <div className="mt-1 font-display text-2xl font-bold text-primary">{opt.bestES.toFixed(2)}</div>
-              <div className="text-xs text-muted-foreground">vs {opt.pinES.toFixed(2)} at pin</div>
-            </CardContent></Card>
-            <Card><CardContent className="p-4">
-              <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Strokes saved</div>
-              <div className={`mt-1 font-display text-2xl font-bold ${opt.saved > 0.005 ? 'text-primary' : ''}`}>−{Math.max(0, opt.saved).toFixed(2)}</div>
-              <div className="text-xs text-muted-foreground">vs aiming at pin</div>
-            </CardContent></Card>
+          </div>
+
+          {/* Three optimizers — the signature CADD-AI output. */}
+          <div className="grid gap-3 sm:grid-cols-3">
+            {(['aggressive', 'optimal', 'safe'] as Strategy[]).map((s) => {
+              const a = opt[s]; const meta = STRAT_META[s]; const active = strategy === s;
+              return (
+                <button key={s} onClick={() => setStrategy(s)}
+                  className={`rounded-lg border p-4 text-left transition-colors ${active ? 'border-current bg-current/5' : 'border-border hover:border-current/50'}`}
+                  style={{ color: meta.color }}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-wide">{meta.label}</span>
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: meta.color }} />
+                  </div>
+                  <div className="mt-1 font-display text-2xl font-bold text-foreground">{a.es.toFixed(2)}</div>
+                  <div className="text-[11px] text-muted-foreground">risk (CVaR) {a.cvar.toFixed(2)}</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">{meta.blurb}</div>
+                </button>
+              );
+            })}
           </div>
 
           <Card>
             <CardHeader>
-              <CardTitle>Optimal target</CardTitle>
-              <CardDescription>Heatmap = expected strokes by aim point (blue = best). White + is the optimal aim, {aimDesc}.</CardDescription>
+              <CardTitle>Optimal targets</CardTitle>
+              <CardDescription>Heatmap = expected strokes by aim point (blue = best). Three optimizers are marked; the white crosshair is the selected <span style={{ color: STRAT_META[strategy].color }}>{STRAT_META[strategy].label}</span> target, {aimDesc} (vs {opt.pinES.toFixed(2)} aiming at the pin).</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid gap-4 md:grid-cols-[360px_1fr]">
                 <div className="aspect-square w-full max-w-[360px]">
-                  <GreenMap model={model} aim={opt.best} landings={opt.result.landings} surface={opt.surface} />
+                  <GreenMap model={model} aim={focus.aim} landings={focus.result.landings} surface={opt.surface} markers={markers} />
                 </div>
                 <div className="space-y-3">
                   <div className="rounded-md border border-border bg-background p-3 text-sm">
@@ -192,10 +214,10 @@ export default function ExpectedStrokes() {
                     <div key={o}>
                       <div className="mb-1 flex justify-between text-xs">
                         <span className="capitalize">{o === 'water' ? 'penalty' : o}</span>
-                        <span className="text-muted-foreground">{Math.round(opt.result.breakdown[o] * 100)}%</span>
+                        <span className="text-muted-foreground">{Math.round(focus.result.breakdown[o] * 100)}%</span>
                       </div>
                       <div className="h-2 w-full rounded-full bg-muted">
-                        <div className="h-2 rounded-full" style={{ width: `${opt.result.breakdown[o] * 100}%`, background: OUT_COLOR[o] }} />
+                        <div className="h-2 rounded-full" style={{ width: `${focus.result.breakdown[o] * 100}%`, background: OUT_COLOR[o] }} />
                       </div>
                     </div>
                   ))}

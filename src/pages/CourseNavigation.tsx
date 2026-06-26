@@ -10,7 +10,7 @@ import { toGeoJSON, colorMatchExpression, KIND_COLORS } from '@/lib/overpass';
 import { extractHoles, courseSummary, type Hole } from '@/lib/holes';
 import { buildHoleModel, approachHeading, offsetToLonLat, lonLatToOffset } from '@/lib/holeStrategy';
 import { teeStrategies } from '@/lib/teeStrategy';
-import { optimizeAim } from '@/lib/shotModel';
+import { optimizeStrategies, type Strategy } from '@/lib/shotModel';
 import { buildBag, recommendClub } from '@/lib/clubs';
 import { shotConditions } from '@/lib/playing';
 import { GreenMap } from '@/components/GreenMap';
@@ -66,9 +66,12 @@ export default function CourseNavigation() {
     [selectedHole, elements, pinOffset.x, pinOffset.y],
   );
   const opt = useMemo(
-    () => (strategy ? optimizeAim(profile.offlineSD, profile.depthSD, { ...strategy.model, division: profile.division, shortGame: { sgArg: profile.sgArg, sgPutting: profile.sgPutting } }, 500) : null),
+    () => (strategy ? optimizeStrategies(profile.offlineSD, profile.depthSD, { ...strategy.model, division: profile.division, shortGame: { sgArg: profile.sgArg, sgPutting: profile.sgPutting } }, 400) : null),
     [strategy, profile.offlineSD, profile.depthSD, profile.division, profile.sgArg, profile.sgPutting],
   );
+  const [aimStrategy, setAimStrategy] = useState<Strategy>('optimal');
+  const STRAT_COLOR: Record<Strategy, string> = { aggressive: '#ef4444', optimal: '#10d98a', safe: '#3b82f6' };
+  const focus = opt ? opt[aimStrategy] : null;
   const tee = useMemo(
     () => (selectedHole ? teeStrategies(selectedHole, elements, profile.drivingDistance) : null),
     [selectedHole, elements, profile.drivingDistance],
@@ -382,26 +385,41 @@ export default function CourseNavigation() {
               <span>Approach</span>
               {approachClub && <span className="font-normal normal-case">{approachClub.name} · ~{approachYds} yd</span>}
             </div>
-            <div className="mt-1.5 grid grid-cols-[120px_1fr] gap-3">
-              <div className="aspect-square"><GreenMap model={strategy.model} aim={opt.best} landings={opt.result.landings} span={Math.max(28, strategy.model.greenRadius + 14)} /></div>
-              <div className="space-y-1.5 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Aim </span>
-                  <span className="font-semibold">
-                    {Math.abs(opt.best.x) < 2 && Math.abs(opt.best.y) < 2
-                      ? 'at the pin'
-                      : `${opt.best.x ? `${Math.abs(opt.best.x)} ${opt.best.x > 0 ? 'R' : 'L'}` : ''}${opt.best.x && opt.best.y ? ', ' : ''}${opt.best.y ? `${Math.abs(opt.best.y)} ${opt.best.y > 0 ? 'long' : 'short'}` : ''}`}
-                  </span>
-                </div>
-                <div><span className="text-muted-foreground">ES remaining </span><span className="font-bold text-primary">{opt.bestES.toFixed(2)}</span></div>
-                <div className="flex flex-wrap gap-x-2 text-xs text-muted-foreground">
-                  {(['green', 'rough', 'sand', 'water'] as const).map((o) => (
-                    <span key={o} title={o}>{o[0].toUpperCase()} {Math.round(opt.result.breakdown[o] * 100)}%</span>
+            {focus && (
+              <>
+                <div className="mt-1.5 flex gap-1">
+                  {(['aggressive', 'optimal', 'safe'] as Strategy[]).map((s) => (
+                    <button key={s} onClick={() => setAimStrategy(s)}
+                      className={`flex-1 rounded-md border px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors ${aimStrategy === s ? 'text-foreground' : 'text-muted-foreground'}`}
+                      style={{ borderColor: aimStrategy === s ? STRAT_COLOR[s] : 'var(--border)', background: aimStrategy === s ? `${STRAT_COLOR[s]}1a` : 'transparent' }}>
+                      <span className="mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ background: STRAT_COLOR[s] }} />
+                      {s === 'optimal' ? 'Opt' : s === 'aggressive' ? 'Aggr' : 'Safe'} {opt![s].es.toFixed(2)}
+                    </button>
                   ))}
                 </div>
-                <div className="pt-1 text-[11px] text-muted-foreground">Your σ {profile.offlineSD}/{profile.depthSD} yd</div>
-              </div>
-            </div>
+                <div className="mt-1.5 grid grid-cols-[120px_1fr] gap-3">
+                  <div className="aspect-square"><GreenMap model={strategy.model} aim={focus.aim} landings={focus.result.landings} span={Math.max(28, strategy.model.greenRadius + 14)}
+                    markers={(['aggressive', 'optimal', 'safe'] as Strategy[]).map((s) => ({ x: opt![s].aim.x, y: opt![s].aim.y, color: STRAT_COLOR[s], label: s[0].toUpperCase() }))} /></div>
+                  <div className="space-y-1.5 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Aim </span>
+                      <span className="font-semibold">
+                        {Math.abs(focus.aim.x) < 2 && Math.abs(focus.aim.y) < 2
+                          ? 'at the pin'
+                          : `${focus.aim.x ? `${Math.abs(focus.aim.x)} ${focus.aim.x > 0 ? 'R' : 'L'}` : ''}${focus.aim.x && focus.aim.y ? ', ' : ''}${focus.aim.y ? `${Math.abs(focus.aim.y)} ${focus.aim.y > 0 ? 'long' : 'short'}` : ''}`}
+                      </span>
+                    </div>
+                    <div><span className="text-muted-foreground">ES remaining </span><span className="font-bold text-primary">{focus.es.toFixed(2)}</span> <span className="text-[11px] text-muted-foreground">· risk {focus.cvar.toFixed(2)}</span></div>
+                    <div className="flex flex-wrap gap-x-2 text-xs text-muted-foreground">
+                      {(['green', 'rough', 'sand', 'water'] as const).map((o) => (
+                        <span key={o} title={o}>{o[0].toUpperCase()} {Math.round(focus.result.breakdown[o] * 100)}%</span>
+                      ))}
+                    </div>
+                    <div className="pt-1 text-[11px] text-muted-foreground">Your σ {profile.offlineSD}/{profile.depthSD} yd</div>
+                  </div>
+                </div>
+              </>
+            )}
             <div className="mt-3 border-t border-border pt-3">
               <div className="mb-1.5 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 <span>Pin sheet</span>
