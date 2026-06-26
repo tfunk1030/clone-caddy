@@ -6,6 +6,7 @@ import { optimizeStrategies, type GreenModel, type Strategy } from '@/lib/shotMo
 import { ES_NOTE, DIVISIONS } from '@/lib/expectedStrokes';
 import { buildBag, recommendClub } from '@/lib/clubs';
 import { shotConditions } from '@/lib/playing';
+import { GREEN_SPEEDS, FIRMNESS_ORDER, stimpPuttFactor, type Firmness } from '@/lib/conditions';
 import { useProfile } from '@/context/ProfileContext';
 
 const PINS: Record<string, { x: number; y: number }> = {
@@ -41,7 +42,8 @@ export default function ExpectedStrokes() {
   const [windDir, setWindDir] = useState('R → L');
   const [windMph, setWindMph] = useState(12);
   const [elevationYd, setElevationYd] = useState(0);
-  const [firmness, setFirmness] = useState<'Soft' | 'Medium' | 'Firm' | 'Very Firm'>('Medium');
+  const [firmness, setFirmness] = useState<Firmness>('Medium');
+  const [stimp, setStimp] = useState(10);
   const [slope, setSlope] = useState(2);
   const [greenRadius, setGreenRadius] = useState(15);
   const [pin, setPin] = useState('Tucked Left');
@@ -59,9 +61,10 @@ export default function ExpectedStrokes() {
   const model: GreenModel = useMemo(() => ({
     greenRadius, greenCenter: PINS[pin], water: WATERS[water],
     bunker: bunker ? { x: -10, y: -10, r: 6 } : null, penaltyStrokes: 1, slopeSeverity: slope,
+    puttFactor: stimpPuttFactor(stimp),
     division: profile.division,
     shortGame: { sgArg: profile.sgArg, sgPutting: profile.sgPutting },
-  }), [greenRadius, pin, water, bunker, slope, profile.division, profile.sgArg, profile.sgPutting]);
+  }), [greenRadius, pin, water, bunker, slope, stimp, profile.division, profile.sgArg, profile.sgPutting]);
 
   const wind = useMemo(() => ({ driftX: cond.driftX, widen: cond.widen }), [cond.driftX, cond.widen]);
   const opt = useMemo(() => optimizeStrategies(club.offlineSD, club.depthSD, model, 500, wind),
@@ -112,7 +115,13 @@ export default function ExpectedStrokes() {
               <Label>Elevation: <span className="font-semibold text-foreground">{fmtYd(elevationYd)} yd</span> {elevationYd > 0 ? '(uphill)' : elevationYd < 0 ? '(downhill)' : ''}</Label>
               <input type="range" min={-25} max={25} value={elevationYd} onChange={(e) => setElevationYd(+e.target.value)} className="w-full accent-[hsl(159_88%_45%)]" />
             </div>
-            <div className="space-y-1.5"><Label>Firmness</Label><Chips options={['Soft', 'Medium', 'Firm', 'Very Firm']} value={firmness} onChange={(v) => setFirmness(v as any)} /></div>
+            <div className="space-y-1.5"><Label>Firmness</Label><Chips options={FIRMNESS_ORDER} value={firmness} onChange={(v) => setFirmness(v as Firmness)} /></div>
+            <div className="space-y-1.5">
+              <Label>Green speed</Label>
+              <Chips options={GREEN_SPEEDS.map((s) => s.label)} value={GREEN_SPEEDS.find((s) => s.stimp === stimp)?.label ?? 'Standard'}
+                onChange={(v) => setStimp(GREEN_SPEEDS.find((s) => s.label === v)?.stimp ?? 10)} />
+              <p className="text-[11px] text-muted-foreground">Stimp {stimp.toFixed(1)}</p>
+            </div>
             <div className="space-y-1.5">
               <Label>Green slope: <span className="font-semibold text-foreground">{slope}/5</span></Label>
               <input type="range" min={0} max={5} value={slope} onChange={(e) => setSlope(+e.target.value)} className="w-full accent-[hsl(159_88%_45%)]" />

@@ -14,7 +14,7 @@ export type ShotEnv = {
   elevationYd?: number;   // target above (+) / below (-) the player, yards
   altitudeFt?: number;
   tempF?: number;
-  firmness?: 'Soft' | 'Medium' | 'Firm' | 'Very Firm';
+  firmness?: 'No Roll' | 'Soft' | 'Medium' | 'Firm' | 'Very Firm';
 };
 
 export type Conditions = {
@@ -27,7 +27,11 @@ export type Conditions = {
   widen: number;  // dispersion σ multiplier from wind (>= 1)
 };
 
-const ROLLOUT: Record<string, number> = { Soft: 0, Medium: 2, Firm: 5, 'Very Firm': 9 };
+import { ROLLOUT_FRACTION } from './conditions';
+// Carry given up to rollout, in yards at a 150-yd reference shot. Derived from
+// the real engine's surface-firmness fractions (×18 yd to land at tour-typical
+// rollout: Medium ≈ 4, Firm ≈ 7, Very Firm ≈ 9 yd).
+const ROLLOUT_BASE = 18;
 
 export function shotConditions(rawYd: number, env: ShotEnv = {}): Conditions {
   const dist = Math.max(1, rawYd);
@@ -41,7 +45,7 @@ export function shotConditions(rawYd: number, env: ShotEnv = {}): Conditions {
   const elevationYd = env.elevationYd || 0; // ~1 yd per yd of rise
   const airPct = (((env.altitudeFt || 0) / 1000) * 2 + (((env.tempF ?? 70) - 70) / 10) * 1) / 100;
   const airYd = -dist * airPct; // warmer/higher flies farther → need less club
-  const firmnessYd = -(ROLLOUT[env.firmness || 'Medium'] || 0) * f; // firm → rollout, carry less
+  const firmnessYd = -(ROLLOUT_FRACTION[env.firmness || 'Medium'] || 0) * ROLLOUT_BASE * f; // firm → rollout, carry less
 
   const playsLike = dist + windYd + elevationYd + airYd + firmnessYd;
   // Crosswind pushes the ball downwind: wind from the right (cross>0) pushes it left.

@@ -31,14 +31,16 @@ export function toGeoJSON(elements: OverpassEl[]) {
   return { type: 'FeatureCollection', features } as const;
 }
 
+// Lie colors matching cadd-ai.vercel.app's legend (Tailwind family):
+// green, fairway lime, tee cyan, rough amber, bunker yellow, water blue.
 export const KIND_COLORS: Record<string, string> = {
-  green: '#37c871',
-  fairway: '#9bd329',
-  tee: '#10d98a',
-  bunker: '#f5e08a',
+  green: '#22c55e',
+  fairway: '#84cc16',
+  tee: '#06b6d4',
+  bunker: '#eab308',
   water_hazard: '#3b82f6',
   lateral_water_hazard: '#3b82f6',
-  rough: '#5b6b78',
+  rough: '#d97706',
   driving_range: '#2dd4bf',
   clubhouse: '#94a3b8',
   other: '#64748b',
