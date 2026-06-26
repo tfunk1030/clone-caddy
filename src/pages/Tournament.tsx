@@ -1,6 +1,29 @@
 import { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
+import CourseNavigation from '@/pages/CourseNavigation';
+
+// Tournament has two views: per-hole Strategy (build/save on the satellite map
+// under tournament conditions) and the Leaderboard.
+export default function Tournament() {
+  const [view, setView] = useState<'strategy' | 'leaderboard'>('strategy');
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-2 border-b border-border bg-card px-4 py-2">
+        <span className="mr-1 font-display text-sm font-bold tracking-wide">Tournament</span>
+        {(['strategy', 'leaderboard'] as const).map((v) => (
+          <button key={v} onClick={() => setView(v)}
+            className={`rounded-full border px-3 py-1 text-xs capitalize transition-colors ${view === v ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>
+            {v}
+          </button>
+        ))}
+      </div>
+      {view === 'strategy'
+        ? <div className="min-h-0 flex-1"><CourseNavigation mode="tournament" /></div>
+        : <div className="min-h-0 flex-1 overflow-auto"><Leaderboard /></div>}
+    </div>
+  );
+}
 
 // A tournament leaderboard. A demo field plays a 4-round event; your own score
 // comes from the most recent round you logged on the Play tab (localStorage),
@@ -32,7 +55,7 @@ function readYourRound(): { score: number; played: number } | null {
   } catch { return null; }
 }
 
-export default function Tournament() {
+function Leaderboard() {
   const { user } = useAuth();
   const [round, setRound] = useState(2); // through which round to show
   const your = readYourRound();
