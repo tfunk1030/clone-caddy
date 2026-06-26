@@ -16,6 +16,7 @@ export type GreenModel = {
   water?: { side: 'L' | 'R' | 'long' | 'short'; line: number } | null; // half-plane
   penaltyStrokes: number;       // strokes added for finding water/OB
   slopeSeverity?: number;       // green slope 0..5 — harder putts
+  puttFactor?: number;          // green-speed (stimp) putting multiplier (1 = standard)
   division?: Division;          // player population for the ES model (default PGA Tour)
   shortGame?: ShortGame;        // strokes-gained skill (default = tour average)
 };
@@ -48,7 +49,8 @@ function strokesFrom(outcome: Outcome, remYds: number, g: GreenModel): number {
   const sg = g.shortGame;
   if (outcome === 'green') {
     const slopeFactor = 1 + (g.slopeSeverity || 0) * 0.03; // steeper greens → harder putts
-    return expectedStrokesAt(remYds, 'green', div, sg) * slopeFactor; // green model is in yards
+    const speedFactor = g.puttFactor || 1;                 // faster greens (higher stimp) → harder putts
+    return expectedStrokesAt(remYds, 'green', div, sg) * slopeFactor * speedFactor; // green model is in yards
   }
   if (outcome === 'water') return g.penaltyStrokes + expectedStrokesAt(remYds, 'rough', div, sg);
   return expectedStrokesAt(remYds, outcome === 'sand' ? 'sand' : 'rough', div, sg);
